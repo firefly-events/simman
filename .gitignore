@@ -1,0 +1,13 @@
+node_modules/
+*.log
+.DS_Store
+# Playwright
+test-results/
+playwright-report/
+playwright/.cache/
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+# MLX / model cache is in the shared HF cache, never vendored here
