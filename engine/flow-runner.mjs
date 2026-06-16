@@ -44,6 +44,7 @@ import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { loadBindings, resolveBindingsPath } from './bindings.mjs';
+import { askVision, resolveProviderConfig } from './providers.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
 
@@ -64,40 +65,23 @@ const DEFAULTS = {
   timeoutMs: Number(process.env.MLX_TIMEOUT_MS ?? 30000),
 };
 
-// ─── MLX helper ──────────────────────────────────────────────────────────────
+// ─── Vision ask (provider-pluggable) ──────────────────────────────────────────
+//
+// Delegates to the provider layer (providers.mjs). `role` selects per-role config:
+// 'grounding' (exact pixel coords — local spatial-VL recommended) vs 'verify'
+// (pass/fail VQA — any provider). Back-compatible: legacy opts { mlx, model }
+// map to the local provider. Timeout/abort surfaces as a thrown error caught by
+// runFlow's per-step try/catch (rec.actError / rec.verify.why).
 
-async function ask(b64, text, { mlx, model, timeoutMs } = {}) {
-  const endpoint = mlx || DEFAULTS.mlx;
-  const mdl = model || DEFAULTS.model;
-  const to = timeoutMs ?? DEFAULTS.timeoutMs;
-  const body = {
-    model: mdl,
-    temperature: 0,
-    max_tokens: 200,
-    messages: [{ role: 'user', content: [
-      { type: 'image_url', image_url: { url: `data:image/png;base64,${b64}` } },
-      { type: 'text', text },
-    ]}],
-  };
-  let r;
-  try {
-    r = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      // AbortSignal.timeout throws a TimeoutError; callers (locate/verify) run
-      // inside runFlow's per-step try/catch, surfacing it via rec.actError /
-      // rec.verify.why like any other MLX failure.
-      signal: AbortSignal.timeout(to),
-    });
-  } catch (e) {
-    if (e && (e.name === 'TimeoutError' || e.name === 'AbortError')) {
-      throw new Error(`MLX timeout after ${to}ms (${endpoint})`);
-    }
-    throw e;
+async function ask(b64, text, opts = {}, role = 'grounding') {
+  const cfg = resolveProviderConfig(opts, role);
+  // Legacy local defaults when the caller specified neither endpoint nor model.
+  if ((cfg.provider === 'mlx' || cfg.provider === 'local')) {
+    if (!cfg.endpoint) cfg.endpoint = opts.mlx || DEFAULTS.mlx;
+    if (!cfg.model) cfg.model = opts.model || DEFAULTS.model;
   }
-  if (!r.ok) throw new Error(`MLX ${r.status}: ${(await r.text()).slice(0, 160)}`);
-  return (await r.json()).choices?.[0]?.message?.content ?? '';
+  if (cfg.timeoutMs == null) cfg.timeoutMs = opts.timeoutMs ?? DEFAULTS.timeoutMs;
+  return askVision(b64, text, cfg);
 }
 
 // ─── PNG dimension reader (no dep) ───────────────────────────────────────────
@@ -147,6 +131,7 @@ export async function locate(page, label, fullPage, opts = {}) {
     buf.toString('base64'),
     `Where is the element described as: "${label}" in this image? Output ONLY JSON {"x":<int>,"y":<int>}. ${coordHint} Output {"x":0,"y":0} only if it is genuinely not present anywhere in the image.`,
     opts,
+    'grounding',
   );
   const ints = (String(raw).match(/-?\d+/g) || []).map(Number);
   const ix = ints[0] ?? 0;
@@ -169,6 +154,7 @@ export async function verify(page, expected, opts = {}) {
     'Look at the screenshot. Did that expected result actually happen / is it shown now? ' +
     'Reply ONLY JSON {"pass":true|false,"why":"<short reason>"}.',
     opts,
+    'verify',
   );
   const s = String(raw);
   const passFalse =
@@ -451,6 +437,10 @@ export async function runActualFlow(options = {}) {
     snapDom = false, retryLimit, stepTimeoutMs,
     baseUrl, coords, viewport, headless = true,
     page: providedPage, onStep,
+    // Provider selection (optional). `provider` sets a global default; `grounding`
+    // and `verify` are per-role override blocks ({ provider, model, endpoint, apiKey }).
+    // Omitted → local MLX defaults, preserving the mlxEndpoint/mlxModel convenience.
+    provider, grounding, verify,
   } = options;
 
   if (!scenario || typeof scenario !== 'object') {
@@ -470,6 +460,7 @@ export async function runActualFlow(options = {}) {
     retryLimit: retryLimit ?? 3,
     timeoutMs: stepTimeoutMs ?? DEFAULTS.timeoutMs,
     onStep,
+    provider, grounding, verify,
   };
 
   // Caller supplied a page → run directly; caller owns navigation + teardown.
