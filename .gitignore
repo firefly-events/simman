@@ -11,3 +11,5 @@ __pycache__/
 .venv/
 venv/
 # MLX / model cache is in the shared HF cache, never vendored here
+spike/run.stderr.log
+spike/report.json
