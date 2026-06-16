@@ -100,49 +100,50 @@ async function postJson(url, headers, body, timeoutMs, label) {
 // ── Adapters ──────────────────────────────────────────────────────────────────
 
 // OpenAI-compatible chat/completions (covers local MLX + OpenAI hosted).
-async function askOpenAICompat({ endpoint, apiKey, model, b64, text, timeoutMs }) {
+// b64 null/empty → text-only (synthesis from a DOM/a11y summary, no screenshot).
+async function askOpenAICompat({ endpoint, apiKey, model, b64, text, timeoutMs, maxTokens = 300 }) {
   const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+  const content = b64
+    ? [{ type: 'image_url', image_url: { url: `data:image/png;base64,${b64}` } }, { type: 'text', text }]
+    : [{ type: 'text', text }];
   const body = {
     model,
     temperature: 0,
-    max_tokens: 300,
-    messages: [{ role: 'user', content: [
-      { type: 'image_url', image_url: { url: `data:image/png;base64,${b64}` } },
-      { type: 'text', text },
-    ]}],
+    max_tokens: maxTokens,
+    messages: [{ role: 'user', content }],
   };
   const j = await postJson(endpoint, headers, body, timeoutMs, 'openai-compat');
   return j.choices?.[0]?.message?.content ?? '';
 }
 
 // Anthropic Messages API.
-async function askAnthropic({ apiKey, model, b64, text, timeoutMs }) {
+async function askAnthropic({ apiKey, model, b64, text, timeoutMs, maxTokens = 300 }) {
   if (!apiKey) throw new Error('anthropic provider requires ANTHROPIC_API_KEY');
   const headers = { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' };
+  const content = b64
+    ? [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: b64 } }, { type: 'text', text }]
+    : [{ type: 'text', text }];
   const body = {
     model: model || HOSTED_DEFAULT_MODELS.anthropic,
-    max_tokens: 300,
+    max_tokens: maxTokens,
     temperature: 0,
-    messages: [{ role: 'user', content: [
-      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: b64 } },
-      { type: 'text', text },
-    ]}],
+    messages: [{ role: 'user', content }],
   };
   const j = await postJson('https://api.anthropic.com/v1/messages', headers, body, timeoutMs, 'anthropic');
   return (j.content || []).filter((c) => c.type === 'text').map((c) => c.text).join('') ?? '';
 }
 
 // Google Gemini generateContent.
-async function askGoogle({ apiKey, model, b64, text, timeoutMs }) {
+async function askGoogle({ apiKey, model, b64, text, timeoutMs, maxTokens = 300 }) {
   if (!apiKey) throw new Error('google provider requires GOOGLE_API_KEY / GEMINI_API_KEY');
   const m = model || HOSTED_DEFAULT_MODELS.google;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+  const parts = b64
+    ? [{ inline_data: { mime_type: 'image/png', data: b64 } }, { text }]
+    : [{ text }];
   const body = {
-    contents: [{ parts: [
-      { inline_data: { mime_type: 'image/png', data: b64 } },
-      { text },
-    ]}],
-    generationConfig: { temperature: 0, maxOutputTokens: 300 },
+    contents: [{ parts }],
+    generationConfig: { temperature: 0, maxOutputTokens: maxTokens },
   };
   const j = await postJson(url, {}, body, timeoutMs, 'google');
   return (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('') ?? '';
@@ -158,6 +159,7 @@ async function askGoogle({ apiKey, model, b64, text, timeoutMs }) {
  */
 export async function askVision(b64, text, cfg = {}) {
   const provider = cfg.provider || 'mlx';
+  const maxTokens = cfg.maxTokens;
   switch (provider) {
     case 'mlx':
     case 'local':
@@ -166,25 +168,25 @@ export async function askVision(b64, text, cfg = {}) {
         endpoint: cfg.endpoint || DEFAULT_LOCAL_ENDPOINT,
         apiKey: cfg.apiKey,
         model: cfg.model || DEFAULT_LOCAL_MODEL,
-        b64, text, timeoutMs: cfg.timeoutMs,
+        b64, text, timeoutMs: cfg.timeoutMs, maxTokens,
       });
     case 'openai':
       return askOpenAICompat({
         endpoint: 'https://api.openai.com/v1/chat/completions',
         apiKey: cfg.apiKey || envKey('OPENAI_API_KEY'),
         model: cfg.model || HOSTED_DEFAULT_MODELS.openai,
-        b64, text, timeoutMs: cfg.timeoutMs,
+        b64, text, timeoutMs: cfg.timeoutMs, maxTokens,
       });
     case 'anthropic':
       return askAnthropic({
         apiKey: cfg.apiKey || envKey('ANTHROPIC_API_KEY'),
-        model: cfg.model, b64, text, timeoutMs: cfg.timeoutMs,
+        model: cfg.model, b64, text, timeoutMs: cfg.timeoutMs, maxTokens,
       });
     case 'google':
     case 'gemini':
       return askGoogle({
         apiKey: cfg.apiKey || envKey('GOOGLE_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'),
-        model: cfg.model, b64, text, timeoutMs: cfg.timeoutMs,
+        model: cfg.model, b64, text, timeoutMs: cfg.timeoutMs, maxTokens,
       });
     default:
       throw new Error(`unknown vision provider: ${provider}`);

@@ -13,3 +13,5 @@ venv/
 # MLX / model cache is in the shared HF cache, never vendored here
 spike/run.stderr.log
 spike/report.json
+spike/spike2.stderr.log
+spike/spike2.report.json
