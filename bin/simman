@@ -1,0 +1,9 @@
+#!/usr/bin/env node
+/**
+ * simman — CLI entry point. Thin: dispatches to cli/run.mjs.
+ */
+import { run } from '../cli/run.mjs';
+
+run(process.argv.slice(2))
+  .then((code) => process.exit(code))
+  .catch((e) => { console.error(`fatal: ${e?.message || e}`); process.exit(2); });

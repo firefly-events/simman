@@ -66,11 +66,15 @@ grounding provider, not one global default.
   step index.
 - Fixtures `plans/publish-simple.yaml`, `plans/publish-dense.yaml`. 18 tests.
 
-### Slice 2 — `simman run plans/x.yaml` + report
-- `bin/simman` CLI. `run <file>`: loadScenario → `runActualFlow` → render report
-  (pass/fail, per-step `passBasis`, posted). Non-zero exit on failure.
-- Flags: `--headless`, `--base-url`, `--provider`/`--local`.
-- This is the v1 critical-path deliverable.
+### Slice 2 — `simman run plans/x.yaml` + report ✅ DONE
+- `bin/simman` → `cli/run.mjs`: `run <file>` loads the scenario, resolves a provider,
+  runs `runActualFlow`, prints `cli/report.mjs` summary (✓/✗ per step + `passBasis`,
+  posted, PASS/FAIL), exits 0/1/2. Flags `--local`, `--provider`, `--base-url`,
+  `--no-headless`, `--json`. `bin` wired in package.json.
+- Minimal provider resolver (hosted-default google / `--local` mlx, coords per Slice 0).
+  Slice 4 replaces it with config-file + per-role resolution.
+- **Smoke-validated end-to-end:** `simman run plans/publish-dense.yaml` via hosted
+  gemini → PASS 3/3 posted=true. 9 CLI tests; suite 83/83.
 
 ### Slice 3 — `simman doctor` (installer/preflight)
 - Checks: node ≥20.19; **playwright browsers installed for SimMan's PINNED version**

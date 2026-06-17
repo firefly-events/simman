@@ -4,11 +4,14 @@
   "private": true,
   "description": "SimMan (Simulated Manual) — selectorless vision-cursor testing for web. A local vision model is the eyes, a real cursor is the hands.",
   "type": "module",
+  "bin": {
+    "simman": "bin/simman"
+  },
   "engines": {
     "node": ">=20.19"
   },
   "scripts": {
-    "test": "node --test engine/__tests__/*.test.mjs gate/__tests__/*.test.mjs"
+    "test": "node --test engine/__tests__/*.test.mjs gate/__tests__/*.test.mjs cli/__tests__/*.test.mjs"
   },
   "dependencies": {
     "js-yaml": "4.2.0",

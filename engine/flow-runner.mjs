@@ -409,7 +409,7 @@ export async function runFlow(page, scenario, binding, opts = {}) {
 
   return {
     scenario: scenario.id,
-    model: (opts.model || DEFAULTS.model).split('/').pop(),
+    model: (opts.grounding?.model || opts.model || DEFAULTS.model).split('/').pop(),
     snap: opts.snapR ?? DEFAULTS.snapR,
     flowPassed: passed === total,
     stepsPassed: `${passed}/${total}`,
