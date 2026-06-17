@@ -34,24 +34,28 @@ produces a correct pass/fail report. Nothing more.
 v1 is mostly CLI + config + installer + docs glue over proven layers, plus ONE
 validation spike.
 
-## ⚠️ Headline risk — hosted grounding is unproven
+## ✅ Headline risk RETIRED — hosted grounding validated (Slice 0, 2026-06-16)
 
-Every passing grounding result used **local Qwen-VL**. Hosted-default makes a hosted
-VL the zero-config grounding model, and grounding (exact pixel coords) is the *hard*
-job hosted frontier models are weakest at. This is the one thing that could undercut
-the hosted-default choice. **Slice 0 de-risks it before we commit the defaults.**
-Regardless of outcome, docs recommend the **hybrid** (local grounding + hosted synth)
-as the "best accuracy" config; hosted-only grounding is the convenience default.
+Was: every passing grounding result used local Qwen-VL, so hosted-default grounding
+was unproven. **Slice 0 measured it:** gemini-2.5-flash grounded the real CTA among a
+decoy blue button, below the fold, **3/3 deterministic** on the dense target (parity
+with local Qwen-VL). **Hosted-default stands; R1 downgraded HIGH → LOW.** Real-site
+robustness on dynamic/scrolling pages is still a caveat (not a blocker). See
+`spike/FINDINGS-slice0.md`.
+
+**Config consequence (feeds Slice 4):** the grounding coordinate space is
+**per-provider** — local Qwen-VL returns pixel coords (`coords: 'px'`), gemini returns
+normalized 0-1000 (`coords: 'norm'`). Provider config must carry a `coords` mode per
+grounding provider, not one global default.
 
 ## Slices (ordered)
 
-### Slice 0 — Hosted-grounding validation (DE-RISK FIRST)
-- Spike: measure a hosted VL (gemini-2.5-flash / and/or gpt-4o) grounding accuracy on
-  `spike/target/dense.html` vs local Qwen-VL — does it click the right CTA among
-  lookalikes, below the fold?
-- **Output = a decision:** is hosted grounding good enough to be the default, or does
-  grounding default to `local-if-available, hosted-fallback`? Feeds Slice 4 defaults.
-- Gate: do not finalize provider defaults until this lands.
+### Slice 0 — Hosted-grounding validation (DE-RISK FIRST) ✅ DONE
+- gemini-2.5-flash grounding on `spike/target/dense.html` = 3/3 hits, parity with local
+  Qwen-VL. Hosted grounding viable as default. Finding: coords convention is
+  per-provider (px local / norm gemini). `spike/run-slice0.mjs`, `FINDINGS-slice0.md`.
+- **Decision:** hosted-default grounding stands; Slice 4 config carries `coords` per
+  provider.
 
 ### Slice 1 — Scenario file format + loader (the spine)
 - Canonical YAML: a scenario (`id`, `baseUrl`, `steps[{action, expected}]`) + an
@@ -105,7 +109,7 @@ in parallel and gates only Slice 4's defaults. Slice 5 (synth/gate) layers on to
 
 | | Risk | Sev | Mitigation |
 | --- | --- | --- | --- |
-| R1 | Hosted grounding accuracy below local | HIGH | Slice 0 spike; recommend hybrid; local-fallback default if it fails |
+| R1 | Hosted grounding accuracy below local | ~~HIGH~~ **LOW** | RETIRED by Slice 0 (3/3 parity). Residual: real-site robustness on dynamic pages |
 | R2 | Playwright browser-version drift | MED | `doctor` installs for the pinned version (spike-1 finding) |
 | R3 | Hosted per-step verify cost/latency | LOW | Acceptable for local dev; truth-signals reduce reliance on vision verify |
 | R4 | Gate UX in a terminal | LOW | `interactiveDecider` already spike-tested |
