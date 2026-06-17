@@ -14,6 +14,7 @@ import { loadScenario } from '../engine/scenario.mjs';
 import { runActualFlow } from '../engine/flow-runner.mjs';
 import { renderReport } from './report.mjs';
 import { doctor } from './doctor.mjs';
+import { resolveProviders, missingKeyRoles } from './config.mjs';
 
 const USAGE = `simman — selectorless vision-cursor web testing
 
@@ -23,7 +24,9 @@ Usage:
 
 Options:
   --local               use a local MLX vision model (default: hosted)
-  --provider <name>     vision provider: google | mlx   (default: google, or mlx with --local)
+  --provider <name>     vision provider for all roles: google | mlx
+  --config <path>       explicit config file (else autodiscover simman.config.*)
+  --coords <px|norm>    override the grounding coordinate convention
   --base-url <url>      override the scenario's baseUrl
   --no-headless         run with a visible browser
   --json                print the raw JSON report instead of the human summary
@@ -31,30 +34,6 @@ Options:
   -h, --help            show this help
 
 Exit codes: 0 pass · 1 fail · 2 error`;
-
-/**
- * Resolve vision provider config for grounding + verify.
- *
- * NOTE: this is the minimal Slice-2 resolver. Slice 4 replaces it with config-file +
- * per-role resolution. The coords mode is per-provider (Slice 0 finding): local Qwen
- * returns pixel coords, gemini returns normalized 0-1000.
- */
-function resolveProviders({ local, provider }) {
-  const name = provider || (local ? 'mlx' : 'google');
-  if (name === 'mlx' || name === 'local') {
-    return { coords: 'px', grounding: { provider: 'mlx' }, verify: { provider: 'mlx' } };
-  }
-  if (name === 'google' || name === 'gemini') {
-    if (!process.env.GOOGLE_API_KEY && !process.env.GEMINI_API_KEY) {
-      throw cliError('hosted provider needs GEMINI_API_KEY (or GOOGLE_API_KEY) in the environment. Set it, or run with --local.');
-    }
-    const g = { provider: 'google', model: 'gemini-2.5-flash', thinkingBudget: 0, maxTokens: 2048 };
-    return { coords: 'norm', grounding: g, verify: { ...g } };
-  }
-  throw cliError(`unknown provider "${name}" (supported in v1: google, mlx)`);
-}
-
-function cliError(msg) { const e = new Error(msg); e.code = 'CLI_ERROR'; return e; }
 
 /**
  * Run the CLI. Returns a process exit code (does not call process.exit).
@@ -73,6 +52,8 @@ export async function run(argv, io = {}) {
       options: {
         local: { type: 'boolean', default: false },
         provider: { type: 'string' },
+        config: { type: 'string' },
+        coords: { type: 'string' },
         'base-url': { type: 'string' },
         headless: { type: 'boolean', default: true },
         json: { type: 'boolean', default: false },
@@ -97,9 +78,16 @@ export async function run(argv, io = {}) {
   let loaded; let providers;
   try {
     loaded = loadScenario(file);
-    providers = resolveProviders(values);
+    providers = resolveProviders({ flags: values });
   } catch (e) {
     errLog(`error: ${e.message}`);
+    return 2;
+  }
+
+  // The run command uses grounding + verify; fail early if a hosted role lacks its key.
+  const missing = missingKeyRoles(providers, ['grounding', 'verify']);
+  if (missing.length) {
+    errLog(`error: missing API key for hosted role(s): ${missing.join(', ')}. Set GEMINI_API_KEY (or GOOGLE_API_KEY), or run with --local.`);
     return 2;
   }
 

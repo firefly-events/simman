@@ -15,3 +15,10 @@ spike/run.stderr.log
 spike/report.json
 spike/spike2.stderr.log
 spike/spike2.report.json
+
+# user-local provider config (keys are env-only, but keep local config out of git)
+simman.config.yaml
+simman.config.yml
+simman.config.json
+.simmanrc.yaml
+.simmanrc.json

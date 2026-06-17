@@ -84,10 +84,20 @@ grounding provider, not one global default.
 - Each check exported + injectable (env/fetch/loadChromium/runFix). 7 tests; live OK in
   both hosted and `--local` modes. Suite 90/90.
 
-### Slice 4 — Provider config + hosted default
-- Config (`simman.config.{json,yaml}` + env): provider per role (synth/ground/verify),
-  keys from env, `--local` flag. Defaults per Slice 0. Bake gemini `thinkingBudget:0`
-  + `maxTokens` (spike-3b). `--local` flips all roles to MLX.
+### Slice 4 — Provider config + hosted default ✅ DONE
+- `cli/config.mjs`: `resolveProviders({flags, env, cwd})` resolves per-role
+  (grounding/verify/synth) from CLI flags > config file (`simman.config.{yaml,json}` /
+  `.simmanrc.*`, autodiscovered or `--config`) > hosted-default. Keys env-only; gemini
+  `thinkingBudget:0`+`maxTokens` baked; coords inferred per grounding provider (px local
+  / norm gemini), `--coords` override. `--local`/`--provider` flip all roles.
+  `missingKeyRoles()` fails the run early with guidance.
+- Example `simman.config.example.yaml` (recommended hybrid: local grounding + hosted
+  synth). 9 tests; **live: default-hosted AND `--local` both PASS 3/3** on the dense
+  target. Suite 99/99.
+
+**✅ CRITICAL PATH COMPLETE (Slices 1→2→3→4):** a clean machine can `simman doctor`
+then `simman run plans/x.yaml` against a dev URL and get a correct pass/fail report,
+hosted or local.
 
 ### Slice 5 — `simman plan` synth scaffolding + gate
 - `plan "<goal>" <url>` → `synthesize` → `gateReview` (interactive approve/reject/edit)

@@ -1,0 +1,28 @@
+# SimMan provider config — copy to simman.config.yaml and edit.
+# Precedence: CLI flags > this file > built-in defaults. API keys come from the
+# environment only (GEMINI_API_KEY / GOOGLE_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY),
+# never from this file.
+#
+# Zero-config default (no file): every role uses hosted gemini-2.5-flash.
+#
+# RECOMMENDED "best accuracy" hybrid (Slice 0): grounding/verify on a local Qwen-VL
+# (pixel-exact), synthesis on a hosted frontier model. Uncomment to use:
+
+# global default provider for any role not overridden below
+provider: google
+
+grounding:
+  provider: mlx                       # local Qwen-VL grounds pixel coords best
+  endpoint: http://127.0.0.1:8089/v1/chat/completions
+  model: mlx-community/Qwen2.5-VL-7B-Instruct-4bit
+
+verify:
+  provider: mlx                       # local verify (advisory; truth-signals are authoritative)
+
+synth:
+  provider: google                    # hosted frontier reasoner for goal -> plan
+  model: gemini-2.5-flash
+
+# coords convention is inferred per grounding provider (mlx -> px, gemini -> norm);
+# uncomment to force one:
+# coords: px
