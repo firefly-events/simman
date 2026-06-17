@@ -66,6 +66,37 @@ degrades on a dense DOM with decoys + a multi-field gate.
    The installer must own a managed sidecar — ideally co-resident grounding + synth
    models or separate ports — not a hand-run swap-on-demand server.
 
+## Follow-up — hosted synthesis (gemini-2.5-flash): dense-UI synthesis now PASSES
+
+Re-ran Part A through the provider layer with a hosted frontier model
+(`SYNTH_PROVIDER=google SYNTH_MODEL=gemini-2.5-flash`). Engine grounding/verify
+stayed on local Qwen-VL; only synthesis changed.
+
+**Result: `pickedRealCTA=true flowPassed=true 3/3 posted=true`** — full autonomous
+PASS on the same dense target that local gemma-12B failed. The button-discrimination
+failure (gemma chose the "Schedule" decoy) is **gone**: gemini picked "Post Now".
+
+Two fixes were required to get there:
+
+1. **Provider integration — Gemini 2.5 thinking tax.** First attempt (gemini-2.5-pro)
+   returned an *empty* string: 2.5 thinking models spend `maxOutputTokens` on internal
+   reasoning, starving the visible answer. Fix (`engine/providers.mjs`): raise the
+   output cap and thread a `thinkingBudget` through `askGoogle` → `generationConfig.
+   thinkingConfig`. Running gemini-2.5-flash with `thinkingBudget: 0`, `maxTokens: 2048`
+   returns the structured plan. (2.5-pro rejects budget 0 — it requires thinking; flash
+   allows 0.)
+2. **Prompt — compound-action under-decomposition.** gemini's first valid plan picked
+   the right button but bundled "fill title *and* caption" into a single fill step
+   (`#title` only) → the multi-field gate stayed unsatisfied → `0/2`. Fix
+   (`agent/synthesize.mjs` SCHEMA_HINT): **one form field per step**; fill every field a
+   disabled CTA depends on before the click. Re-run → clean 3-step plan, full PASS.
+
+**Takeaway:** the dense-UI synthesis ceiling is a **model + prompt** problem, not an
+architectural one. The provider abstraction paid off — swapping local→hosted fixed the
+weak link with no engine change. Recommended default for dense UIs: a frontier
+synthesis model (or a larger local one) behind the same gate; local small-VL stays the
+grounding/verify default.
+
 ## Not yet proven (next)
 
 - **Stronger synthesis** (larger local model or hosted frontier) on this same dense

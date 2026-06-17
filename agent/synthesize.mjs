@@ -31,7 +31,9 @@ Rules:
 - Use the key "act" (not "action") inside overlay steps. "action" belongs only in scenario steps.
 - Prefer native with a selector taken from the elements list. Use vision ONLY when no stable selector exists.
 - Declare truth "cta_enabled" when a primary button becomes enabled after input; "posted" when an action submits/publishes.
-- overlay.steps[i] pairs with scenario.steps[i]; same length, same order. Keep it to the FEWEST meaningful steps (typically 2-4), not micro-steps.
+- overlay.steps[i] pairs with scenario.steps[i]; same length, same order.
+- ONE form field per step: each input/textarea/select you must fill is its OWN step. NEVER bundle two fields ("fill title and caption") into a single step — emit one fill step per field. Both the scenario step and its overlay step describe a single field.
+- If a primary button is disabled until several fields are filled, fill EVERY required field (each its own step) before the click step. Keep clicks un-decomposed (one tap = one step); only fills are per-field.
 
 EXAMPLE (different page — match this exact shape):
 {"scenario":{"id":"login","steps":[{"action":"Enter email and submit","expected":"the form accepts the email"},{"action":"Click Sign in","expected":"the dashboard is shown"}]},

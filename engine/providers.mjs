@@ -134,17 +134,21 @@ async function askAnthropic({ apiKey, model, b64, text, timeoutMs, maxTokens = 3
 }
 
 // Google Gemini generateContent.
-async function askGoogle({ apiKey, model, b64, text, timeoutMs, maxTokens = 300 }) {
+async function askGoogle({ apiKey, model, b64, text, timeoutMs, maxTokens = 300, thinkingBudget }) {
   if (!apiKey) throw new Error('google provider requires GOOGLE_API_KEY / GEMINI_API_KEY');
   const m = model || HOSTED_DEFAULT_MODELS.google;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
   const parts = b64
     ? [{ inline_data: { mime_type: 'image/png', data: b64 } }, { text }]
     : [{ text }];
-  const body = {
-    contents: [{ parts }],
-    generationConfig: { temperature: 0, maxOutputTokens: maxTokens },
-  };
+  // Gemini 2.5 thinking models spend output tokens on internal reasoning, which can
+  // starve the visible answer. Give the answer headroom and let callers cap (or
+  // disable) the thinking budget so the structured plan actually comes back.
+  const generationConfig = { temperature: 0, maxOutputTokens: maxTokens };
+  if (thinkingBudget != null && /2\.5/.test(m)) {
+    generationConfig.thinkingConfig = { thinkingBudget };
+  }
+  const body = { contents: [{ parts }], generationConfig };
   const j = await postJson(url, {}, body, timeoutMs, 'google');
   return (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('') ?? '';
 }
@@ -187,6 +191,7 @@ export async function askVision(b64, text, cfg = {}) {
       return askGoogle({
         apiKey: cfg.apiKey || envKey('GOOGLE_API_KEY', 'GEMINI_API_KEY', 'GOOGLE_GENERATIVE_AI_API_KEY'),
         model: cfg.model, b64, text, timeoutMs: cfg.timeoutMs, maxTokens,
+        thinkingBudget: cfg.thinkingBudget,
       });
     default:
       throw new Error(`unknown vision provider: ${provider}`);

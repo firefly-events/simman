@@ -55,12 +55,21 @@ try {
   // synthesis miss (the very signal we want) must not block the grounding test.
   const GOAL = process.env.GOAL
     || 'Create a campaign post — fill in the required fields and publish it, then confirm it was posted.';
-  console.error(`\n[spike3:A] synthesizing on dense DOM via ${SYNTH_MODEL}`);
+  // Synthesis provider is configurable: default local MLX, or a hosted frontier
+  // model (e.g. SYNTH_PROVIDER=google SYNTH_MODEL=gemini-2.5-pro) to test whether a
+  // stronger reasoner fixes the dense-UI discrimination failure.
+  const SYNTH_PROVIDER = process.env.SYNTH_PROVIDER || 'mlx';
+  const synthCfg = SYNTH_PROVIDER === 'mlx'
+    ? { provider: 'mlx', endpoint: MLX, model: SYNTH_MODEL, timeoutMs: 120000 }
+    // Hosted: give the answer headroom and disable the 2.5 thinking tax (thinkingBudget 0)
+    // so the structured plan is what comes back, not internal reasoning.
+    : { provider: SYNTH_PROVIDER, model: process.env.SYNTH_MODEL, timeoutMs: 120000, maxTokens: 2048, thinkingBudget: 0 };
+  console.error(`\n[spike3:A] synthesizing on dense DOM via ${SYNTH_PROVIDER}:${synthCfg.model || '(default)'}`);
   console.error(`           GOAL: ${GOAL}`);
   try {
     const plan = await synthesize({
       url: baseUrl, goal: GOAL, headless,
-      providerCfg: { provider: 'mlx', endpoint: MLX, model: SYNTH_MODEL, timeoutMs: 120000 },
+      providerCfg: synthCfg,
       retries: 2,
     });
     console.error('\n[spike3:A] SYNTHESIZED PLAN:');
