@@ -13,11 +13,13 @@ import { parseArgs } from 'node:util';
 import { loadScenario } from '../engine/scenario.mjs';
 import { runActualFlow } from '../engine/flow-runner.mjs';
 import { renderReport } from './report.mjs';
+import { doctor } from './doctor.mjs';
 
 const USAGE = `simman — selectorless vision-cursor web testing
 
 Usage:
   simman run <scenario.yaml> [options]
+  simman doctor [--local] [--fix]
 
 Options:
   --local               use a local MLX vision model (default: hosted)
@@ -25,6 +27,7 @@ Options:
   --base-url <url>      override the scenario's baseUrl
   --no-headless         run with a visible browser
   --json                print the raw JSON report instead of the human summary
+  --fix                 (doctor) auto-install missing playwright browsers
   -h, --help            show this help
 
 Exit codes: 0 pass · 1 fail · 2 error`;
@@ -73,6 +76,7 @@ export async function run(argv, io = {}) {
         'base-url': { type: 'string' },
         headless: { type: 'boolean', default: true },
         json: { type: 'boolean', default: false },
+        fix: { type: 'boolean', default: false },
         help: { type: 'boolean', short: 'h', default: false },
       },
     });
@@ -86,6 +90,7 @@ export async function run(argv, io = {}) {
   const [cmd, file] = positionals;
 
   if (values.help || !cmd) { log(USAGE); return values.help ? 0 : 2; }
+  if (cmd === 'doctor') return doctor({ local: values.local, fix: values.fix }, { log });
   if (cmd !== 'run') { errLog(`unknown command "${cmd}". ${''}`); errLog(USAGE); return 2; }
   if (!file) { errLog('run: a scenario file path is required'); errLog(USAGE); return 2; }
 

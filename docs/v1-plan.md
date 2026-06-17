@@ -76,11 +76,13 @@ grounding provider, not one global default.
 - **Smoke-validated end-to-end:** `simman run plans/publish-dense.yaml` via hosted
   gemini → PASS 3/3 posted=true. 9 CLI tests; suite 83/83.
 
-### Slice 3 — `simman doctor` (installer/preflight)
-- Checks: node ≥20.19; **playwright browsers installed for SimMan's PINNED version**
-  (the spike-1 cross-version-cache finding); API key present; if `--local`, MLX
-  reachable. `doctor --fix` runs `playwright install chromium`.
-- Light because hosted-default — no mandatory weights.
+### Slice 3 — `simman doctor` (installer/preflight) ✅ DONE
+- `cli/doctor.mjs`: node version floor; **playwright chromium for the pinned version**
+  (checks `chromium.executablePath()` exists — the spike-1 cache finding); hosted key
+  present (skipped in `--local`); MLX reachable (required only in `--local`). `--fix`
+  runs `npx playwright install chromium`. Exit 0/1.
+- Each check exported + injectable (env/fetch/loadChromium/runFix). 7 tests; live OK in
+  both hosted and `--local` modes. Suite 90/90.
 
 ### Slice 4 — Provider config + hosted default
 - Config (`simman.config.{json,yaml}` + env): provider per role (synth/ground/verify),
