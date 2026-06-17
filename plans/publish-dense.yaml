@@ -1,0 +1,17 @@
+# SimMan scenario — dense campaign target (spike/target/dense.html).
+# Exercises a multi-field gate (title AND caption) and a vision tap on the real CTA
+# among decoys, below the fold. Run:  simman run plans/publish-dense.yaml
+id: publish-dense
+baseUrl: http://localhost:4175
+steps:
+  - action: Enter a campaign title
+    expected: the title is accepted
+    do: { fill: "#title", value: "Spring Launch" }
+  - action: Enter a caption
+    expected: the Post Now button becomes enabled
+    do: { fill: "#caption", value: "Big news today!" }
+    truth: cta_enabled
+  - action: Publish the post via the real Post Now button (not Boost Post)
+    expected: the post is published
+    do: { vision: "the blue Post Now publish button (not the Boost Post button)" }
+    truth: posted

@@ -57,11 +57,14 @@ grounding provider, not one global default.
 - **Decision:** hosted-default grounding stands; Slice 4 config carries `coords` per
   provider.
 
-### Slice 1 — Scenario file format + loader (the spine)
-- Canonical YAML: a scenario (`id`, `baseUrl`, `steps[{action, expected}]`) + an
-  overlay (`steps[StepEntry]`), one file. `loadScenario(path) → {scenario, overlay}`
-  (js-yaml already a dep), validated through `validateBindings` + length-parity.
-- Fixtures (`plans/*.yaml`), actionable errors on malformed input. Tests.
+### Slice 1 — Scenario file format + loader (the spine) ✅ DONE
+- `engine/scenario.mjs`: `parseScenario(text, source)` + `loadScenario(path)` →
+  `{scenario, overlay}`. One authoring-friendly YAML file (`id`, optional `baseUrl`,
+  `steps[{action, expected, do, truth?}]`) with a `do:` act-sugar (fill/tapRole/
+  tapText/goto/wait/vision) that compiles 1:1 to engine StepEntries; gated through
+  `validateBindings` + length-parity. Source-labelled `SCENARIO_INVALID` errors with
+  step index.
+- Fixtures `plans/publish-simple.yaml`, `plans/publish-dense.yaml`. 18 tests.
 
 ### Slice 2 — `simman run plans/x.yaml` + report
 - `bin/simman` CLI. `run <file>`: loadScenario → `runActualFlow` → render report

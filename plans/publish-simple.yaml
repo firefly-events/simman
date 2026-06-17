@@ -1,0 +1,13 @@
+# SimMan scenario — simple compose target (spike/target/index.html).
+# Run:  simman run plans/publish-simple.yaml   (after Slice 2)
+id: publish-simple
+baseUrl: http://localhost:4173
+steps:
+  - action: Write a caption in the compose box
+    expected: the Post Now button becomes enabled
+    do: { fill: "#caption", value: "Hello world!" }
+    truth: cta_enabled
+  - action: Publish the post
+    expected: the post is published
+    do: { tapRole: "Post Now" }
+    truth: posted
