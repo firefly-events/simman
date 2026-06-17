@@ -8,7 +8,7 @@
     "node": ">=20.19"
   },
   "scripts": {
-    "test": "node --test engine/__tests__/*.test.mjs"
+    "test": "node --test engine/__tests__/*.test.mjs gate/__tests__/*.test.mjs"
   },
   "dependencies": {
     "js-yaml": "4.2.0",
