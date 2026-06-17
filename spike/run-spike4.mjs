@@ -52,7 +52,9 @@ const CORRECTION = [
   {
     op: 'replace', i: 0,
     scenario: { action: 'Enter a campaign title', expected: 'title accepted' },
-    overlay: { how: 'native', act: 'fill', args: { selector: '#title', value: 'Spring Launch' } },
+    // truth:null clears the decoy step's leftover 'posted' signal — a title fill has
+    // no truth-signal, so it should pass on native act success.
+    overlay: { how: 'native', act: 'fill', args: { selector: '#title', value: 'Spring Launch' }, truth: null },
   },
   {
     op: 'insert', i: 1,
@@ -98,6 +100,9 @@ try {
     flowPassed: report.flowPassed, stepsPassed: report.stepsPassed, posted: report.posted,
     postedViaRealCTA: postCount > postsBeforeB,
   };
+  for (const s of report.steps || []) {
+    console.error(`  step ${s.i} how=${s.how} acted=${s.acted} basis=${s.passBasis} pass=${s.pass} truth=${s.truth} visionVerify=${s.visionVerify} actErr=${s.actError || ''}`);
+  }
   console.error(`[spike4:B] VERDICT: flowPassed=${report.flowPassed} stepsPassed=${report.stepsPassed} posted=${report.posted}`);
 
   console.log(JSON.stringify({ results, totalPosts: postCount }, null, 2));

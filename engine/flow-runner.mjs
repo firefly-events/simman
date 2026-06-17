@@ -304,6 +304,26 @@ async function evalTruthSignal(page, signal, networkState) {
   throw new Error(`unknown truth signal: ${signal}`);
 }
 
+// ─── Pass precedence (hybrid V&V) ─────────────────────────────────────────────
+//
+// Decide whether a step passed, and on what basis:
+//   1. truth-signal (DOM/network ground-truth) — authoritative when declared.
+//   2. native act success — a Playwright fill/tap/goto either succeeds or throws,
+//      so for a native step with no truth-signal the act IS the signal. Vision
+//      verify is still recorded but only advisory here; the VL judge is noisy on
+//      state it can't see (spike 1 / spike 4 false-failed an obviously-good fill).
+//   3. vision verify — authoritative only for a vision step with no truth-signal,
+//      where a visual judgment is the whole point.
+//
+// @param {{truth?:{pass:boolean}, acted?:boolean, verify?:{pass:boolean}}} rec
+// @param {{how?:string}} b  the overlay step
+// @returns {{pass:boolean, basis:'truth'|'native-act'|'vision-verify'}}
+export function decidePass(rec, b = {}) {
+  if (rec.truth) return { pass: !!rec.truth.pass, basis: 'truth' };
+  if (b.how !== 'vision') return { pass: rec.acted === true, basis: 'native-act' };
+  return { pass: !!rec.verify?.pass, basis: 'vision-verify' };
+}
+
 // ─── Flow runner (core) ───────────────────────────────────────────────────────
 //
 // Drives a full scenario flow: for each step, run setup primitives → act → verify.
@@ -370,7 +390,9 @@ export async function runFlow(page, scenario, binding, opts = {}) {
         rec.truth = { signal: b.truth, pass: !!tp };
       }
 
-      rec.pass = rec.truth ? rec.truth.pass : !!rec.verify?.pass;
+      const verdict = decidePass(rec, b);
+      rec.pass = verdict.pass;
+      rec.passBasis = verdict.basis;
       report.push(rec);
 
       if (opts.onStep) opts.onStep(rec);
@@ -403,6 +425,7 @@ export async function runFlow(page, scenario, binding, opts = {}) {
       visionVerify: r.verify?.pass,
       truth: r.truth?.pass,
       pass: r.pass,
+      passBasis: r.passBasis,
       why: r.verify?.why,
       action: r.action,
       expected: r.expected,

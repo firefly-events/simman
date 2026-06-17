@@ -21,6 +21,13 @@ import { renderPlan, approveOrThrow } from './render.mjs';
 
 function clone(x) { return JSON.parse(JSON.stringify(x)); }
 
+/** Shallow-merge `patch` over `base`; a `null` value in `patch` deletes that key. */
+function mergeClearing(base, patch) {
+  const out = { ...base, ...patch };
+  for (const k of Object.keys(out)) if (out[k] === null) delete out[k];
+  return out;
+}
+
 /** Infer the `how` discriminator for an operator-supplied overlay step. */
 function inferHow(step) {
   if (!step || typeof step !== 'object') return step;
@@ -85,8 +92,11 @@ export function applyEdits(plan, edits = []) {
     if (op === 'replace') {
       const { i } = edit;
       if (i < 0 || i >= overlay.steps.length) throw mkInvalid(`replace: index ${i} out of range`);
-      if (edit.overlay) overlay.steps[i] = inferHow({ ...overlay.steps[i], ...edit.overlay });
-      if (edit.scenario) scenario.steps[i] = { ...scenario.steps[i], ...edit.scenario };
+      // Shallow-merge so a caller can tweak one field — but a `null` value CLEARS the
+      // field, so a stale field from a fundamentally different prior step (e.g. a
+      // leftover truth-signal when retargeting a tapRole into a fill) can be removed.
+      if (edit.overlay) overlay.steps[i] = inferHow(mergeClearing(overlay.steps[i], edit.overlay));
+      if (edit.scenario) scenario.steps[i] = mergeClearing(scenario.steps[i], edit.scenario);
     } else if (op === 'insert') {
       const i = edit.i ?? overlay.steps.length;
       if (i < 0 || i > overlay.steps.length) throw mkInvalid(`insert: index ${i} out of range`);

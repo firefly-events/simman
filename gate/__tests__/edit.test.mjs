@@ -41,6 +41,15 @@ test('applyEdits replace: fix the wrong button name', () => {
   assert.equal(out.overlay.steps[1].truth, 'posted'); // unspecified fields preserved
 });
 
+test('applyEdits replace: null clears a stale field (leftover truth-signal)', () => {
+  // Retarget the publish tap into a plain fill; the old truth:posted must not linger.
+  const out = applyEdits(basePlan(), [
+    { op: 'replace', i: 1, overlay: { act: 'fill', args: { selector: '#x', value: 'v' }, truth: null } },
+  ]);
+  assert.equal(out.overlay.steps[1].act, 'fill');
+  assert.equal('truth' in out.overlay.steps[1], false); // cleared, not stale 'posted'
+});
+
 test('applyEdits insert: add a missing paired step', () => {
   const out = applyEdits(basePlan(), [
     {

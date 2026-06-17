@@ -52,18 +52,26 @@ totalPosts: 1
 2. **Edits stay paired + re-validated.** Because every op touches both step arrays and
    the result re-runs the engine validator, an operator cannot approve a structurally
    broken plan (the silent length-drop bug from spike 2 cannot be reintroduced by hand).
-3. **Engine-quality follow-up (out of scope here): native acts shouldn't depend on
-   vision verify.** Part B reported `flowPassed=false 2/3` even though `posted=true`:
-   the title-fill step declared no truth-signal, so it fell back to the (noisy) vision
-   verify and false-failed — the same vision-verify unreliability seen in spike 1.
-   Steps with truth-signals passed; the real publish fired. A successful **native**
-   Playwright act is itself the signal; vision verify should be advisory for native
-   steps, authoritative only for vision steps. File as an engine fix.
+3. **Two follow-on fixes landed → clean `3/3`, `flowPassed=true` (re-run).**
+   - **Engine — native acts no longer depend on vision verify.** Pass precedence is now
+     truth-signal → native-act-success → vision-verify (`decidePass` in `flow-runner.mjs`,
+     8 unit tests). A successful Playwright `fill`/`tap`/`goto` is its own signal; the
+     noisy VL judge is advisory for native steps. (Re-run: step 1's caption fill shows
+     `visionVerify=false` but `truth=true` — the truth-signal correctly overrode the
+     vision false-fail; the hybrid V&V design holds.)
+   - **Gate — `replace` footgun fixed.** Shallow-merge let a stale field survive when an
+     op retargets a step to a different act: the correction turned the "Schedule"
+     tapRole (which carried `truth: posted`) into a `#title` fill, and the leftover
+     `truth: posted` made the title step evaluate the network signal (no POST yet → fail).
+     `replace`/`scenario` merges now honor `null` as a field-clear (`mergeClearing`), so
+     the correction passes `truth: null` to drop it. This is a real hazard for any
+     hand-edit that changes a step's kind, not just the spike.
+
+   Re-run per-step: `step0 native-act pass · step1 truth pass (vision disagreed) ·
+   step2 truth pass` → `flowPassed=true 3/3 posted=true`.
 
 ## Next
 
-- Engine: native-act steps pass on act success; vision verify advisory (would make
-  this flow `3/3`).
 - Wire the gate-edit loop into the autonomous spike (3b) so a frontier-synth plan that
   still misses can be hand-corrected before running.
 - `interactiveDecider` UX polish for the standalone CLI face.
