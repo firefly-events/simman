@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Campaign Studio — SimMan dense spike target</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; margin: 0; background: #eef0f3; color: #111; }
+    /* Sticky nav with several decoy buttons (grounding distractors). */
+    nav { position: sticky; top: 0; display: flex; gap: 8px; align-items: center;
+          background: #1f2937; padding: 12px 24px; }
+    nav .brand { color: #fff; font-weight: 700; margin-right: auto; }
+    nav button { background: #374151; color: #e5e7eb; border: none; padding: 8px 14px;
+                 border-radius: 6px; cursor: pointer; font-size: 14px; }
+    .card { max-width: 720px; margin: 32px auto; background: #fff; padding: 28px;
+            border-radius: 12px; box-shadow: 0 2px 12px rgba(0,0,0,.08); }
+    h1 { font-size: 22px; margin: 0 0 6px; }
+    .sub { color: #6b7280; margin: 0 0 24px; font-size: 14px; }
+    label { display: block; font-weight: 600; font-size: 14px; margin: 18px 0 6px; }
+    input[type=text], textarea, select { width: 100%; font-size: 16px; padding: 11px;
+            border: 1px solid #cbd5e1; border-radius: 8px; }
+    textarea { height: 110px; }
+    .row { display: flex; gap: 12px; }
+    .row > div { flex: 1; }
+    .secondary { margin-top: 20px; display: flex; gap: 10px; }
+    .secondary button { background: #e5e7eb; color: #111; border: none; padding: 12px 22px;
+            border-radius: 8px; cursor: pointer; font-size: 15px; font-weight: 600; }
+    /* Tall preview panel pushes the real CTA below the fold (scroll test). */
+    .preview { margin-top: 24px; height: 520px; background: #f8fafc; border: 1px dashed #cbd5e1;
+            border-radius: 10px; display: flex; align-items: center; justify-content: center;
+            color: #94a3b8; font-size: 15px; }
+    .cta-row { margin-top: 28px; display: flex; gap: 14px; align-items: center; }
+    /* Two blue primary-looking buttons: a decoy "Boost Post" and the real "Post Now". */
+    #boost { font-size: 17px; font-weight: 700; color: #fff; background: #2563eb; border: none;
+            padding: 15px 32px; border-radius: 8px; cursor: pointer; }
+    #post { font-size: 18px; font-weight: 700; color: #fff; background: #2563eb; border: none;
+            padding: 16px 40px; border-radius: 8px; cursor: pointer; }
+    #post:disabled { background: #9ca3af; cursor: not-allowed; }
+    #confirm { display: none; margin-top: 24px; padding: 16px; background: #dcfce7; color: #166534;
+            font-size: 18px; font-weight: 700; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <nav>
+    <span class="brand">Campaign Studio</span>
+    <button id="nav-home">Home</button>
+    <button id="nav-drafts">Drafts</button>
+    <button id="nav-analytics">Analytics</button>
+    <button id="nav-settings">Settings</button>
+  </nav>
+
+  <div class="card">
+    <h1>New campaign post</h1>
+    <p class="sub">Both a title and a caption are required before you can publish.</p>
+
+    <label for="title">Campaign title</label>
+    <input type="text" id="title" name="title" placeholder="e.g. Spring Launch" />
+
+    <label for="caption">Caption</label>
+    <textarea id="caption" name="caption" placeholder="What's happening?"></textarea>
+
+    <div class="row">
+      <div>
+        <label for="tags">Tags</label>
+        <input type="text" id="tags" name="tags" placeholder="comma,separated" />
+      </div>
+      <div>
+        <label for="audience">Audience</label>
+        <select id="audience" name="audience">
+          <option value="everyone">Everyone</option>
+          <option value="followers">Followers</option>
+          <option value="custom">Custom</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="secondary">
+      <button id="save-draft">Save Draft</button>
+      <button id="schedule">Schedule</button>
+    </div>
+
+    <div class="preview">Live preview (scroll down to publish)</div>
+
+    <div class="cta-row">
+      <button id="boost">Boost Post</button>
+      <button id="post" disabled>Post Now</button>
+    </div>
+    <div id="confirm">✅ Posted! Your campaign is live.</div>
+  </div>
+
+  <script>
+    const title = document.getElementById('title');
+    const cap = document.getElementById('caption');
+    const btn = document.getElementById('post');
+    const ok = document.getElementById('confirm');
+    // CTA enabled only when BOTH title and caption are non-empty (multi-field gate).
+    function refresh() {
+      btn.disabled = title.value.trim().length === 0 || cap.value.trim().length === 0;
+    }
+    title.addEventListener('input', refresh);
+    cap.addEventListener('input', refresh);
+    // Decoys: no network, must NOT be mistaken for the real publish.
+    document.getElementById('boost').addEventListener('click', () => {});
+    document.getElementById('save-draft').addEventListener('click', () => {});
+    document.getElementById('schedule').addEventListener('click', () => {});
+    // Real publish: fires the network POST (drives 'posted' truth-signal) + confirmation.
+    btn.addEventListener('click', () => {
+      fetch('/api/social/post', { method: 'POST' }).catch(() => {});
+      ok.style.display = 'block';
+      btn.textContent = 'Posted';
+    });
+  </script>
+</body>
+</html>
