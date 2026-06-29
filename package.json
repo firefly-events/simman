@@ -1,11 +1,12 @@
 {
   "name": "simman",
   "version": "0.1.0",
-  "private": true,
   "license": "Apache-2.0",
   "author": "Firefly Events",
   "description": "SimMan (Simulated Manual) — selectorless vision-cursor testing for web. A vision model is the eyes, a real cursor is the hands.",
   "keywords": ["testing", "e2e", "vision", "gemini", "playwright", "selectorless", "qa"],
+  "homepage": "https://github.com/firefly-events/simman#readme",
+  "bugs": "https://github.com/firefly-events/simman/issues",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/firefly-events/simman.git"
@@ -14,6 +15,20 @@
   "bin": {
     "simman": "bin/simman"
   },
+  "files": [
+    "bin",
+    "cli",
+    "engine",
+    "gate",
+    "agent",
+    "scenarios",
+    "docs",
+    "simman.config.example.yaml",
+    "NOTICE",
+    "!**/__pycache__/**",
+    "!**/*.pyc",
+    "!**/*.pyo"
+  ],
   "engines": {
     "node": ">=20.19"
   },

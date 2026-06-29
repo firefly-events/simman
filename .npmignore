@@ -1,0 +1,8 @@
+# Python build artifacts — never ship
+__pycache__/
+*.pyc
+*.pyo
+
+# Local logs / scratch
+.logs/
+*.log
