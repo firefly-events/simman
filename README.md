@@ -2,11 +2,16 @@
 
 **Simulated Manual** — selectorless, vision-grounded, real-cursor testing for web.
 
-Instead of CSS selectors, a local vision model (Qwen2.5-VL) is the **eyes** and a
-real cursor is the **hands**: screenshot → model grounds pixel coordinates → real
-click → model judges "did the expected result happen," with DOM/network
-truth-signals authoritative when declared. Catches pixel/visual failures that
-DOM-based tools can't see.
+Instead of CSS selectors, a multimodal model is the **eyes** and a real cursor is the
+**hands**: screenshot → model grounds pixel coordinates → real click → model judges
+"did the expected result happen," with DOM/network truth-signals authoritative when
+declared. Catches pixel/visual failures that DOM-based tools can't see.
+
+**Model-agnostic.** SimMan is not tied to one model. We've tested primarily with
+**Google Gemini** (hosted) and **Qwen2.5-VL** (local via MLX), but any capable
+multimodal model that can ground coordinates from an image should work — providers are
+pluggable per role (grounding / verify / synth). Grounding is the demanding job; pick a
+model strong at precise spatial localization.
 
 > Web-first. Hosted **Google Gemini** by default (zero local setup) — or run fully
 > local on Apple Silicon with MLX Qwen. A Firefly Events product.
@@ -62,6 +67,11 @@ Local (optional — private/offline, Apple Silicon only):
 ## Quickstart
 
 ```bash
+# 1. Get the code (not on npm — clone or download the repo)
+git clone https://github.com/firefly-events/simman.git
+cd simman
+
+# 2. Install
 npm install
 npx playwright install chromium
 export GEMINI_API_KEY=...          # or run --local with an MLX sidecar
