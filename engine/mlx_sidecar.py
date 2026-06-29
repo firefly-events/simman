@@ -3,8 +3,13 @@ MLX Qwen sidecar lifecycle — start / readiness-probe / stop.
 
 Story: am-5-mlx-qwen-sidecar (actual-manual-tier)
 
-Starts `python -m mlx_lm.server` as a subprocess with the model pinned, exposes
+Starts `python -m mlx_vlm.server` as a subprocess with the model pinned, exposes
 a readiness probe (no curl/wget — stdlib urllib only), and provides a clean stop.
+
+NOTE: the model is a vision-language model (Qwen2.5-VL), so the server MUST be
+`mlx_vlm.server` (vision-capable), NOT `mlx_lm.server` (text-only — cannot accept
+image inputs). Verified compatible with mlx-vlm 0.6.3 (2026-06-29): exposes
+/v1/chat/completions + /v1/models and accepts OpenAI image_url + base64 data-URI blocks.
 
 Config (env-over-config; all have documented defaults):
   MLX_MODEL  — model id     (default: mlx-community/Qwen2.5-VL-7B-Instruct-4bit)
@@ -103,7 +108,7 @@ class SidecarHandle:
 
 def start(cfg: SidecarConfig | None = None) -> SidecarHandle:
     """
-    Launch mlx_lm.server with the model pinned.
+    Launch mlx_vlm.server with the model pinned (vision-capable; required for VL models).
 
     Returns a SidecarHandle immediately — the server is NOT yet ready.
     Call wait_ready() or poll probe() to confirm readiness.
@@ -114,8 +119,9 @@ def start(cfg: SidecarConfig | None = None) -> SidecarHandle:
     if cfg is None:
         cfg = SidecarConfig.from_env()
 
+    # mlx_vlm.server (NOT mlx_lm.server) — the VL model needs the vision-capable server.
     cmd = [
-        sys.executable, "-m", "mlx_lm.server",
+        sys.executable, "-m", "mlx_vlm.server",
         "--model", cfg.model,
         "--port", str(cfg.port),
         "--host", cfg.host,
