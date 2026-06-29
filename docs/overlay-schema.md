@@ -1,7 +1,7 @@
 # Actual-Manual Overlay Schema
 
 **Status:** canonical reference for `actual-manual` flow-binding overlays  
-**Loader:** [`hive/lib/actual-manual/bindings.mjs`](../../hive/lib/actual-manual/bindings.mjs)
+**Loader:** [`engine/bindings.mjs`](../engine/bindings.mjs)
 
 ## Purpose
 
@@ -127,7 +127,7 @@ toasts vanish before a screenshot can capture them.
 | `posted` | Network: expected POST/PUT request was intercepted |
 
 The set is extensible: add new values to `KNOWN_TRUTH_SIGNALS` in
-`hive/lib/actual-manual/bindings.mjs` before calling the loader.
+`engine/bindings.mjs` before calling the loader.
 
 ## Validation Rules
 

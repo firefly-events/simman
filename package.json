@@ -1,8 +1,15 @@
 {
   "name": "simman",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
-  "description": "SimMan (Simulated Manual) — selectorless vision-cursor testing for web. A local vision model is the eyes, a real cursor is the hands.",
+  "license": "UNLICENSED",
+  "author": "Firefly Events",
+  "description": "SimMan (Simulated Manual) — selectorless vision-cursor testing for web. A vision model is the eyes, a real cursor is the hands.",
+  "keywords": ["testing", "e2e", "vision", "gemini", "playwright", "selectorless", "qa"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/firefly-events/simman.git"
+  },
   "type": "module",
   "bin": {
     "simman": "bin/simman"

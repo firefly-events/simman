@@ -8,12 +8,17 @@ click → model judges "did the expected result happen," with DOM/network
 truth-signals authoritative when declared. Catches pixel/visual failures that
 DOM-based tools can't see.
 
-> Local-only, Apple Silicon, web-first. A Firefly Events product (seed stage).
+> Web-first. Hosted **Google Gemini** by default (zero local setup) — or run fully
+> local on Apple Silicon with MLX Qwen. A Firefly Events product.
+
+SimMan applies the same Gemini visual-grounding that powers Google's own AI pointer —
+to autonomous UI testing. (We use the Gemini API directly; not affiliated with Google.)
 
 ## Status
 
-Seed / spike. Extracted from the `plugin-hive` `actual-manual` tier
-(`feat/actual-manual-tier`), now its own thing. Not yet packaged or published.
+Early. Extracted from the `plugin-hive` `actual-manual` tier into its own product.
+Engine hardened (tests green); `agent/` (plan synthesis) and `gate/` (approval) are
+scaffolded next. Hive consumes SimMan as an optional external dependency via the CLI.
 
 ## Architecture — three layers
 
@@ -30,15 +35,22 @@ Seed / spike. Extracted from the `plugin-hive` `actual-manual` tier
 Flow: `bare goal + URL → agent explores → synthesized plan → APPROVAL GATE →
 engine executes → hybrid report`.
 
-`installer/` — local setup/doctor that makes the prerequisite stack (Playwright
-browsers, `mlx-lm`, Qwen2.5-VL weights, MLX sidecar) install cleanly. _(stub)_
+`installer/` — local setup/doctor that makes the optional local stack (Playwright
+browsers, `mlx-vlm`, Qwen2.5-VL weights, MLX sidecar) install cleanly. _(stub)_
 
-## Prerequisites (provisioned by `installer/`, not yet automated)
+## Prerequisites
 
-- macOS on Apple Silicon
-- `pip install mlx-lm`
-- `playwright install chromium`
+Always:
+- Node ≥ 20.19
+- `npx playwright install chromium` (the browser SimMan drives)
+
+Hosted (default — recommended for zero setup):
+- `GEMINI_API_KEY` (or `GOOGLE_API_KEY`)
+
+Local (optional — private/offline, Apple Silicon only):
+- `pip install mlx-vlm` &nbsp;# vision-capable server — NOT `mlx-lm` (text-only)
 - Qwen2.5-VL-7B-4bit weights (~5GB, pulled to the HF cache on first run)
+- start the sidecar: `python -m engine.mlx_sidecar start` (serves on :8089)
 
 ## Two faces
 
@@ -47,12 +59,27 @@ browsers, `mlx-lm`, Qwen2.5-VL weights, MLX sidecar) install cleanly. _(stub)_
 - **Hive** — joins a Hive test team via a specialist-trigger when UI work is
   detected; Hive keeps only a thin detect-or-fail-fast seam pointing here.
 
-## Engine quickstart (today)
+## Quickstart
 
 ```bash
 npm install
-npm test            # node --test engine/__tests__/*.test.mjs
+npx playwright install chromium
+export GEMINI_API_KEY=...          # or run --local with an MLX sidecar
+
+# Run a scenario (hosted Gemini by default):
+simman run scenarios/example.yaml --base-url http://localhost:3100
+simman run scenarios/example.yaml --json     # machine-readable RunReport
+simman doctor                                 # preflight providers + browser
+
+# Exit codes: 0 pass · 1 fail · 2 error
 ```
 
-See `docs/scope.md` for the full product definition and open decisions, and
-`docs/overlay-schema.md` for the structured overlay format the engine consumes.
+A scenario is one authored YAML — `id`, optional `baseUrl`, and `steps` of
+`{ action, expected, do, truth? }`. See `scenarios/example.yaml` and
+`docs/overlay-schema.md` for the compiled engine format.
+
+```bash
+npm test            # 99 tests — engine + cli + gate, headless, no API key needed
+```
+
+See `docs/scope.md` for the full product definition and open decisions.

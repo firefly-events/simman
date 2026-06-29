@@ -1,0 +1,29 @@
+# Example SimMan scenario — one authored YAML compiles to the engine's
+# { scenario, overlay } pair. Each step: what a user does (`action`), the
+# observable result (`expected`), the actuation (`do` — exactly one act), and an
+# optional authoritative `truth` signal (DOM/network) that overrides the vision judge.
+#
+# Acts: fill (+value) · tapRole · tapText · goto · wait · vision
+# Run:  simman run scenarios/example.yaml --base-url http://localhost:3100
+
+id: example-publish-post
+baseUrl: http://localhost:3100   # override with --base-url
+
+steps:
+  - action: Open the compose page
+    expected: The compose form is visible
+    do: { goto: "/compose" }
+
+  - action: Enter a caption
+    expected: The Post button becomes enabled
+    do: { fill: "[data-testid=caption-input]", value: "Hello from SimMan" }
+    truth: cta_enabled            # DOM: the CTA is no longer disabled
+
+  - action: Click Post
+    expected: The post is submitted
+    do: { tapRole: "Post" }       # role defaults to button
+    truth: posted                 # network: the expected POST fired
+
+  - action: Confirm visually
+    expected: A success confirmation is shown
+    do: { vision: "the green 'Posted!' confirmation banner" }
