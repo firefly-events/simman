@@ -12,7 +12,7 @@
  */
 
 const DEFAULT_HOST = '127.0.0.1';
-const DEFAULT_PORT = 8089; // 8080 is owned by Multica — never use it
+const DEFAULT_PORT = 8089; // 8080 is often used by other local dev services — avoid using it
 
 /**
  * @param {{ host?: string, port?: number, timeoutMs?: number }} [opts]

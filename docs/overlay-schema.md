@@ -6,7 +6,7 @@
 ## Purpose
 
 The flow-bindings overlay is the **thin annotation layer** that tells the vision-cursor
-runner *how* to actuate each step of a Hive scenario. It does not duplicate or replace the
+runner *how* to actuate each step of a SimMan scenario. It does not duplicate or replace the
 scenario — the scenario (`action` + `expected`) remains the contract; the overlay only
 specifies the actuation method.
 

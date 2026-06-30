@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { loadBindings, validateBindings, KNOWN_TRUTH_SIGNALS } from '../bindings.mjs';
 
 function makeTmp() {
-  return mkdtempSync(join(tmpdir(), 'hive-bindings-'));
+  return mkdtempSync(join(tmpdir(), 'simman-bindings-'));
 }
 
 function cleanup(dir) {

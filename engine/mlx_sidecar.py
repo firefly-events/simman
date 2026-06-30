@@ -13,7 +13,7 @@ image inputs). Verified compatible with mlx-vlm 0.6.3 (2026-06-29): exposes
 
 Config (env-over-config; all have documented defaults):
   MLX_MODEL  — model id     (default: mlx-community/Qwen2.5-VL-7B-Instruct-4bit)
-  MLX_PORT   — server port  (default: 8089; 8080 is owned by Multica, not available)
+  MLX_PORT   — server port  (default: 8089; 8080 is often used by other local dev services)
   MLX_HOST   — server host  (default: 127.0.0.1)
 
 Probe states (returned by probe() and wait_ready()):
@@ -64,7 +64,7 @@ class SidecarError(RuntimeError):
 # ─── Config ───────────────────────────────────────────────────────────────────
 
 _DEFAULT_MODEL = "mlx-community/Qwen2.5-VL-7B-Instruct-4bit"
-_DEFAULT_PORT = 8089  # 8080 is Multica — never use it
+_DEFAULT_PORT = 8089  # 8080 is often used by other local dev services — avoid using it
 _DEFAULT_HOST = "127.0.0.1"
 
 

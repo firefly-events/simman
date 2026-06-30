@@ -3,7 +3,7 @@
  *
  * SimMan is not prescriptive about model or host. One `askVision()` surface,
  * pluggable backends:
- *   - mlx       — local OpenAI-compatible server (default; e.g. mlx_lm.server)
+ *   - mlx       — local OpenAI-compatible server (e.g. mlx_vlm.server for vision models)
  *   - openai    — OpenAI hosted (gpt-4o family), OPENAI_API_KEY
  *   - anthropic — Anthropic hosted (Claude vision), ANTHROPIC_API_KEY
  *   - google    — Google Gemini, GOOGLE_API_KEY / GEMINI_API_KEY

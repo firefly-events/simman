@@ -551,7 +551,7 @@ async function main() {
       baseUrl: DEFAULTS.baseUrl,
     });
 
-    console.log(JSON.stringify({ arm: 'hive-bridge', ...result }, null, 2));
+    console.log(JSON.stringify({ arm: 'standalone', ...result }, null, 2));
   } finally {
     await browser.close();
   }

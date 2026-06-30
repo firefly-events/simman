@@ -25,6 +25,10 @@
     "docs",
     "simman.config.example.yaml",
     "NOTICE",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
     "!**/__pycache__/**",
     "!**/*.pyc",
     "!**/*.pyo"

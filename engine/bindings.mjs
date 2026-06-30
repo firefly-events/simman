@@ -27,7 +27,7 @@
  *   Act: "goto" | "fill" | "tapRole" | "tapText" | "wait"
  *   TruthSignal: "cta_enabled" | "posted"  (extensible via KNOWN_TRUTH_SIGNALS)
  *
- * Reference: hive/references/actual-manual-overlay-schema.md
+ * Reference: docs/overlay-schema.md
  */
 
 import { readFileSync } from 'node:fs';

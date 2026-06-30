@@ -8,7 +8,7 @@ local models or any of the hosted APIs — per role, mix freely.
 
 | provider | host | auth (env) | notes |
 | --- | --- | --- | --- |
-| `mlx` (default) | local OpenAI-compatible server (e.g. `mlx_lm.server`) | none | recommended for **grounding** |
+| `mlx` | local OpenAI-compatible server (e.g. `mlx_vlm.server`) | none | recommended for **grounding** |
 | `openai` | OpenAI hosted | `OPENAI_API_KEY` | gpt-4o family |
 | `anthropic` | Anthropic hosted | `ANTHROPIC_API_KEY` | Claude vision |
 | `google` | Google Gemini | `GOOGLE_API_KEY` / `GEMINI_API_KEY` | Gemini vision |
@@ -24,7 +24,7 @@ vLLM) works via `provider: 'mlx'` with a custom `endpoint`.
   use them for grounding only after validating on your UI.
 - **Verify** — judge pass/fail from a screenshot. Hosted frontier models excel.
 
-Default stance: **local-VL for grounding, any provider for verify.**
+CLI default: **hosted Gemini** (zero local setup — set `GEMINI_API_KEY`). Pass `--local` to switch to local MLX for grounding.
 
 ## Configuring per role
 
@@ -43,7 +43,8 @@ await runActualFlow({
 ```
 
 `grounding` / `verify` override the global `provider`/`model`. Omit everything →
-local MLX defaults. Legacy `mlxEndpoint` / `mlxModel` still work for the local path.
+the global `provider` default (`mlx` at the API level; CLI uses hosted Gemini when
+`GEMINI_API_KEY` is set). Legacy `mlxEndpoint` / `mlxModel` still work for the local path.
 
 ## Recommended local models
 
