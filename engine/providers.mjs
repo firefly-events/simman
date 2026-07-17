@@ -137,7 +137,8 @@ async function askAnthropic({ apiKey, model, b64, text, timeoutMs, maxTokens = 3
 async function askGoogle({ apiKey, model, b64, text, timeoutMs, maxTokens = 300, thinkingBudget }) {
   if (!apiKey) throw new Error('google provider requires GOOGLE_API_KEY / GEMINI_API_KEY');
   const m = model || HOSTED_DEFAULT_MODELS.google;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+  // Key goes in a header, not the query string — URLs leak into proxy/TLS-inspection logs.
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`;
   const parts = b64
     ? [{ inline_data: { mime_type: 'image/png', data: b64 } }, { text }]
     : [{ text }];
@@ -149,7 +150,7 @@ async function askGoogle({ apiKey, model, b64, text, timeoutMs, maxTokens = 300,
     generationConfig.thinkingConfig = { thinkingBudget };
   }
   const body = { contents: [{ parts }], generationConfig };
-  const j = await postJson(url, {}, body, timeoutMs, 'google');
+  const j = await postJson(url, { 'x-goog-api-key': apiKey }, body, timeoutMs, 'google');
   return (j.candidates?.[0]?.content?.parts || []).map((p) => p.text || '').join('') ?? '';
 }
 

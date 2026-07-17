@@ -4,7 +4,15 @@
   "license": "Apache-2.0",
   "author": "Firefly Events",
   "description": "SimMan (Simulated Manual) — selectorless vision-cursor testing for web. A vision model is the eyes, a real cursor is the hands.",
-  "keywords": ["testing", "e2e", "vision", "gemini", "playwright", "selectorless", "qa"],
+  "keywords": [
+    "testing",
+    "e2e",
+    "vision",
+    "gemini",
+    "playwright",
+    "selectorless",
+    "qa"
+  ],
   "homepage": "https://github.com/firefly-events/simman#readme",
   "bugs": "https://github.com/firefly-events/simman/issues",
   "repository": {
@@ -41,6 +49,6 @@
   },
   "dependencies": {
     "js-yaml": "4.2.0",
-    "playwright": "1.52.0"
+    "playwright": "^1.61.1"
   }
 }
