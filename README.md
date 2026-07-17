@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="SimMan logo" width="120">
+</p>
+
 # SimMan
 
 ![CI](https://github.com/firefly-events/simman/actions/workflows/ci.yml/badge.svg)

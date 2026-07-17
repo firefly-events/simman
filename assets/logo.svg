@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="SimMan logo">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient>
+  </defs>
+  <!-- rounded tile -->
+  <rect x="16" y="16" width="480" height="480" rx="96" fill="#0b1020"/>
+  <!-- eye outline (vision = the eyes) -->
+  <path d="M256 148 C 368 148 440 236 456 256 C 440 276 368 364 256 364 C 144 364 72 276 56 256 C 72 236 144 148 256 148 Z"
+        fill="none" stroke="url(#g)" stroke-width="26" stroke-linejoin="round"/>
+  <!-- iris -->
+  <circle cx="256" cy="256" r="84" fill="none" stroke="url(#g)" stroke-width="18" opacity="0.55"/>
+  <!-- pupil = cursor (real cursor = the hands) -->
+  <path d="M226 196 L 316 286 L 272 290 L 296 338 L 268 352 L 244 302 L 214 334 Z"
+        fill="url(#g)"/>
+</svg>

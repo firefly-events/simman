@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SimMan — selectorless, vision-grounded web testing</title>
+<meta name="description" content="SimMan (Simulated Manual): a vision model is the eyes, a real cursor is the hands. Selectorless E2E testing for the web.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect x='16' y='16' width='480' height='480' rx='96' fill='%230b1020'/%3E%3Cpath d='M256 148C368 148 440 236 456 256 440 276 368 364 256 364 144 364 72 276 56 256 72 236 144 148 256 148Z' fill='none' stroke='%236366f1' stroke-width='26'/%3E%3Cpath d='M226 196 316 286 272 290 296 338 268 352 244 302 214 334Z' fill='%2306b6d4'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#0b1020; --panel:#111831; --panel2:#0e1428; --text:#e2e8f0; --muted:#8b96ad;
+    --indigo:#6366f1; --cyan:#06b6d4; --green:#34d399; --amber:#fbbf24;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:16px/1.6 -apple-system,'Segoe UI',Helvetica,Arial,sans-serif}
+  a{color:var(--cyan);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .wrap{max-width:960px;margin:0 auto;padding:0 24px}
+  header{padding:72px 0 48px;text-align:center}
+  .logo{width:96px;height:96px;margin:0 auto 24px;display:block}
+  h1{font-size:56px;font-weight:700;letter-spacing:-2px}
+  h1 .grad,.grad{background:linear-gradient(120deg,var(--indigo),var(--cyan));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .tagline{font-size:22px;color:var(--muted);margin-top:12px}
+  .badges{margin-top:20px;display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
+  .badge{font:13px var(--mono);padding:4px 12px;border-radius:999px;border:1px solid #2a3550;color:var(--muted)}
+  .badge.alpha{border-color:var(--amber);color:var(--amber)}
+  .cta{margin-top:32px;display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+  .btn{padding:12px 24px;border-radius:10px;font-weight:600;display:inline-block}
+  .btn.primary{background:linear-gradient(120deg,var(--indigo),var(--cyan));color:#fff}
+  .btn.ghost{border:1px solid #2a3550;color:var(--text)}
+  .btn:hover{text-decoration:none;filter:brightness(1.1)}
+  section{padding:48px 0}
+  h2{font-size:28px;letter-spacing:-0.5px;margin-bottom:20px}
+  .pipeline{display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;justify-content:center}
+  .step{flex:1 1 150px;min-width:150px;background:var(--panel);border:1px solid #222c48;border-radius:12px;padding:18px;text-align:center}
+  .step .emoji{font-size:28px}
+  .step b{display:block;margin-top:8px}
+  .step small{color:var(--muted)}
+  .arrow{align-self:center;color:var(--muted);font-size:20px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px}
+  .card{background:var(--panel);border:1px solid #222c48;border-radius:12px;padding:20px}
+  .card h3{font-size:17px;margin-bottom:8px}
+  .card p{color:var(--muted);font-size:15px}
+  pre{background:var(--panel2);border:1px solid #222c48;border-radius:12px;padding:20px;overflow-x:auto;font:14px/1.55 var(--mono)}
+  .cmt{color:#5b6a8c}.key{color:var(--cyan)}.str{color:var(--green)}.kw{color:var(--indigo)}
+  .note{border-left:3px solid var(--amber);background:var(--panel2);padding:14px 18px;border-radius:0 10px 10px 0;color:var(--muted);font-size:15px}
+  footer{padding:48px 0 64px;text-align:center;color:var(--muted);font-size:14px;border-top:1px solid #1a2340;margin-top:48px}
+  @media(max-width:640px){h1{font-size:40px}.arrow{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <svg class="logo" viewBox="0 0 512 512" aria-hidden="true">
+    <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient></defs>
+    <rect x="16" y="16" width="480" height="480" rx="96" fill="#111831"/>
+    <path d="M256 148C368 148 440 236 456 256 440 276 368 364 256 364 144 364 72 276 56 256 72 236 144 148 256 148Z" fill="none" stroke="url(#g)" stroke-width="26" stroke-linejoin="round"/>
+    <circle cx="256" cy="256" r="84" fill="none" stroke="url(#g)" stroke-width="18" opacity="0.55"/>
+    <path d="M226 196 316 286 272 290 296 338 268 352 244 302 214 334Z" fill="url(#g)"/>
+  </svg>
+  <h1>Sim<span class="grad">Man</span></h1>
+  <p class="tagline">Your E2E tests break because of <em>selectors</em>, not bugs.<br>
+  A vision model is the <b>eyes</b>. A real cursor is the <b>hands</b>.</p>
+  <div class="badges">
+    <span class="badge alpha">alpha 0.1</span>
+    <span class="badge">Apache-2.0</span>
+    <span class="badge">npm i -g simman</span>
+    <span class="badge">model-agnostic</span>
+  </div>
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/firefly-events/simman">GitHub →</a>
+    <a class="btn ghost" href="https://www.npmjs.com/package/simman">npm</a>
+  </div>
+</header>
+
+<section>
+  <h2>How it works</h2>
+  <div class="pipeline">
+    <div class="step"><span class="emoji">📸</span><b>Screenshot</b><small>real browser, real pixels</small></div>
+    <div class="arrow">→</div>
+    <div class="step"><span class="emoji">🎯</span><b>Ground</b><small>model finds pixel coordinates</small></div>
+    <div class="arrow">→</div>
+    <div class="step"><span class="emoji">🖱️</span><b>Click</b><small>real cursor, no selectors</small></div>
+    <div class="arrow">→</div>
+    <div class="step"><span class="emoji">✅</span><b>Judge</b><small>did the expected result happen?</small></div>
+  </div>
+</section>
+
+<section>
+  <h2>Why</h2>
+  <div class="grid">
+    <div class="card"><h3>No brittle selectors</h3><p>CSS selectors break on refactors, not bugs. SimMan clicks what a user <em>sees</em> — so tests survive markup churn and catch visual failures DOM tools are blind to.</p></div>
+    <div class="card"><h3>Deterministic core</h3><p>No LLM inside the engine. A structured scenario drives Playwright deterministically; vision is used only where selectors would be. 99 tests, headless, no API key needed.</p></div>
+    <div class="card"><h3>Truth signals</h3><p>Optional DOM/network assertions are <em>authoritative</em> — when declared, ground truth overrides the vision judge. Hybrid verification, not vibes.</p></div>
+    <div class="card"><h3>Local-first option</h3><p>Run grounding fully offline on Apple Silicon with Qwen2.5-VL via MLX — screenshots never leave your machine. Or use hosted Gemini with zero setup.</p></div>
+    <div class="card"><h3>Readable by anyone</h3><p>Scenarios are plain YAML in user language — <code>action</code> / <code>expected</code> per step. A PM can review your test plan.</p></div>
+    <div class="card"><h3>Human-gated autonomy</h3><p>On the roadmap: describe a goal, the agent synthesizes a plan — and a human must approve it before any browser action runs. Agent proposes, human disposes.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>Quick start</h2>
+<pre><span class="cmt"># install</span>
+npm i -g simman
+npx playwright install chromium
+<span class="kw">export</span> GEMINI_API_KEY=...
+
+<span class="cmt"># preflight, then run a scenario</span>
+simman doctor
+simman run scenarios/example.yaml --base-url http://localhost:3100</pre>
+
+<pre><span class="key">id:</span> <span class="str">compose-and-post</span>
+<span class="key">steps:</span>
+  - <span class="key">action:</span> <span class="str">"Type a greeting into the message box"</span>
+    <span class="key">expected:</span> <span class="str">"The message box contains the greeting"</span>
+  - <span class="key">action:</span> <span class="str">"Click the Post button"</span>
+    <span class="key">expected:</span> <span class="str">"A confirmation appears"</span>
+    <span class="key">truth:</span> <span class="str">posted</span>   <span class="cmt"># DOM/network signal — overrides the vision judge</span></pre>
+</section>
+
+<section>
+  <div class="note"><b>Alpha honesty:</b> the deterministic engine is hardened and shipping today. The autonomous synthesis layer (<code>agent/</code>) and approval gate (<code>gate/</code>) are scaffolded but not yet wired to the CLI. Built-in truth signals are being generalized — user-configurable signals are the top roadmap item.</div>
+</section>
+
+<footer>
+  SimMan — Simulated Manual · Apache-2.0 · a <a href="https://ff.events">Firefly Events</a> project ·
+  <a href="https://github.com/firefly-events/simman">GitHub</a> · <a href="https://www.npmjs.com/package/simman">npm</a>
+</footer>
+
+</div>
+</body>
+</html>
