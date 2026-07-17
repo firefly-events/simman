@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2026-07-16
+
+### Security
+
+- Bumped Playwright to ^1.61.1 (past GHSA-7mvr-c777-76hp — browser binaries
+  previously downloaded without SSL certificate verification).
+- Gemini API key is now sent via the `x-goog-api-key` header instead of the URL
+  query string, keeping it out of proxy and TLS-inspection logs.
+
+### Changed
+
+- `.env` / `.env.*` files are now gitignored.
+- README documents the truth-signal alpha limitation (built-in `posted` /
+  `cta_enabled` signals match the origin app's patterns; user-configurable
+  signals are the top roadmap item).
+
 ## [0.1.0] - 2025-06-29
 
 ### Added

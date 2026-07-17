@@ -1,6 +1,6 @@
 {
   "name": "simman",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "license": "Apache-2.0",
   "author": "Firefly Events",
   "description": "SimMan (Simulated Manual) — selectorless vision-cursor testing for web. A vision model is the eyes, a real cursor is the hands.",
