@@ -34,7 +34,14 @@ to autonomous UI testing. (We use the Gemini API directly; not affiliated with G
 
 - **`simman run <scenario.yaml>`** — authored YAML → real browser (Playwright) →
   vision grounding → hybrid pass/fail report
+- **`simman synthesize <url> "<goal>"`** — describe a goal in plain language; the
+  agent explores the page and proposes a test plan, you **approve / edit / reject**
+  it at the gate, and the approved plan is saved as a plain scenario YAML and run.
+  Agent proposes, human disposes.
 - **`simman doctor`** — preflight providers and browser
+- User-defined **truth signals** — declare your app's own DOM/network ground truth
+  per step (`kind: network` / `kind: element_enabled`); authoritative over the
+  vision judge when declared
 - Pluggable vision providers: hosted Gemini (zero-config default) or local MLX/Qwen
   (offline, Apple Silicon)
 
@@ -42,15 +49,14 @@ to autonomous UI testing. (We use the Gemini API directly; not affiliated with G
 
 1. **`engine/`** — deterministic runner. Takes a **structured** scenario + overlay,
    drives the browser, vision-grounds, verifies, returns a hybrid pass/fail report.
-   No LLM in the core; testable headless. _(hardened — 99 tests green)_
+   No LLM in the core; testable headless. _(hardened — 116 tests green)_
 2. **`agent/`** — synthesis layer (LLM). Compiles intent into the engine's
    structured input: given a URL + a natural-language goal, explores the page,
    decomposes into steps, decides native-vs-vision, declares truth-signals.
-   _(roadmap — not yet wired to the CLI; see [Roadmap](#roadmap--experimental))_
 3. **`gate/`** — approval gate. The synthesized test plan is rendered
-   human-readable and **must be approved before any browser action runs**. Makes
-   autonomous synthesis safe: agent proposes, human disposes.
-   _(roadmap — not yet wired to the CLI; see [Roadmap](#roadmap--experimental))_
+   human-readable and **must be approved before any browser action runs**
+   (approve / edit in `$EDITOR` / reject). Makes autonomous synthesis safe:
+   agent proposes, human disposes.
 
 `installer/` — local setup/doctor that makes the optional local stack (Playwright
 browsers, `mlx-vlm`, Qwen2.5-VL weights, MLX sidecar) install cleanly. _(stub)_
@@ -108,27 +114,52 @@ A scenario is one authored YAML — `id`, optional `baseUrl`, and `steps` of
 `{ action, expected, do, truth? }`. See `scenarios/example.yaml` and
 `docs/overlay-schema.md` for the compiled engine format.
 
-> **Known alpha limitation — truth signals.** The two built-in truth signals
-> (`posted`, `cta_enabled`) currently match patterns from the app SimMan was
-> extracted from (a specific API route and button label), so they will not fire
-> against arbitrary apps yet. User-configurable truth signals (declare your own
-> URL pattern / element matcher in the scenario) are the top roadmap item.
-> Vision-based verification works everywhere today.
+Truth signals are user-defined — declare your own app's ground truth per step:
 
-```bash
-npm test            # 99 tests — engine + cli + gate, headless, no API key needed
+```yaml
+truth:
+  kind: network            # a matching request was observed…
+  match: /api/posts        # …whose URL contains this
+  method: POST             # optional
+# or
+truth:
+  kind: element_enabled    # a matching element is visible + not disabled
+  name: Post Now           # visible/accessible text (or selector: "<css>")
 ```
 
-## Roadmap / experimental
+When declared, the truth signal is **authoritative over the vision judge** —
+hybrid verification, not vibes. (The legacy `posted` / `cta_enabled` string
+aliases still parse but are deprecated.)
 
-The following modules are scaffolded but **not yet wired to the CLI**:
+```bash
+npm test            # 116 tests — engine + cli + gate + agent, headless, no API key needed
+```
 
-- **`agent/`** — goal → plan synthesis: given a URL + natural-language goal, an LLM
-  explores the page, decomposes into steps, decides native-vs-vision, declares
-  truth-signals. See `agent/README.md`.
-- **`gate/`** — approval gate: synthesized test plan is rendered human-readable and
-  requires explicit approve / edit / reject before any browser action runs.
-  See `gate/README.md`.
+## Synthesis — goal → gate → test
 
-Future flow: `bare goal + URL → agent explores → synthesized plan → APPROVAL GATE →
-engine executes → hybrid report`.
+```bash
+simman synthesize http://localhost:3100 "compose a post and publish it"
+```
+
+The agent explores the page (DOM interactables + screenshot), compiles the goal
+into a structured plan, and shows it at the gate:
+
+```
+SimMan test plan — scenario "compose-post"
+  1. Enter a caption
+       do:     fill [data-testid="caption-input"]
+       verify: the Post button becomes enabled
+  2. Click Post
+       do:     tapRole button "Post"   [truth: network /api/posts]
+       verify: the post is submitted
+
+gate> [a]pprove · [e]dit in $EDITOR · [r]eject:
+```
+
+Nothing touches a real cursor until you approve. The approved plan is saved to
+`scenarios/<id>.yaml` — a plain, human-readable artifact that re-runs forever with
+**no further LLM synthesis** (`simman run scenarios/<id>.yaml`). Use `--no-run` to
+save without executing; exit code 3 means rejected at the gate.
+
+The synthesis model is configurable per role (`synth` in `simman.config.yaml`);
+synthesis quality depends on the model — hosted Gemini is the tested default.

@@ -112,22 +112,45 @@ Each setup item is a native primitive (same `act`/`args` shape as a native step,
 
 ## `truth` — Authoritative Verification Signal
 
-`truth` is an optional enum value that, when present, is the **authoritative backstop** for
+`truth` is optional and, when present, is the **authoritative backstop** for
 step verification. Vision verify runs alongside; if they diverge, the truth-signal wins and
 the divergence is recorded.
 
 This is necessary because vision cannot reliably read enabled/disabled state, and ephemeral
 toasts vanish before a screenshot can capture them.
 
-### Known Truth Signals
+### Object form (preferred)
 
-| Value | Verification method |
-|-------|---------------------|
-| `cta_enabled` | DOM: CTA element is not disabled (`!element.disabled`) |
-| `posted` | Network: expected POST/PUT request was intercepted |
+Declare your own app's ground truth per step:
 
-The set is extensible: add new values to `KNOWN_TRUTH_SIGNALS` in
-`engine/bindings.mjs` before calling the loader.
+```yaml
+# network: the app fired a matching request (success API call observed)
+truth:
+  kind: network
+  match: /api/orders        # URL substring
+  method: POST              # optional; any method when omitted
+
+# element_enabled: a matching element exists, is visible, and not disabled
+truth:
+  kind: element_enabled
+  name: Submit              # visible/accessible text (or use selector)
+  role: button              # optional; default button-like elements
+  # selector: "#submit"     # css alternative to role/name
+```
+
+| Kind | Verification method |
+|------|---------------------|
+| `network` | A request whose URL contains `match` (and matches `method`, if given) was observed during the run |
+| `element_enabled` | An element matched by `selector` or `role`+`name` exists, is visible (width > 0, opacity > 0.1), and is not disabled / `aria-disabled` |
+
+### Legacy string aliases (deprecated)
+
+| Value | Equivalent object form |
+|-------|------------------------|
+| `posted` | `{ kind: network, match: /api/social/post, method: POST }` |
+| `cta_enabled` | `{ kind: element_enabled, role: button, name: post now }` |
+
+These match the app SimMan was extracted from; prefer the object form for your own app.
 
 ## Validation Rules
 
@@ -139,7 +162,7 @@ The loader (`loadBindings`) validates and throws on:
 - A `native` step is missing `act` or `args`
 - A `native` step has an unknown `act`
 - A `vision` step is missing `target`
-- Any step declares `truth` with an unknown value
+- Any step declares `truth` with an unknown alias, an unknown `kind`, a `network` truth without `match`, or an `element_enabled` truth without `selector`/`name`
 - Any setup item is missing `act` or has an unknown `act`
 
 Errors name the `scenarioId` and the step index (e.g., `scenario "flayr-campaign-compose" step 2`).

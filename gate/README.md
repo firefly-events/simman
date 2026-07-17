@@ -1,4 +1,4 @@
-# gate/ — approval gate (stub)
+# gate/ — approval gate
 
 The safety primitive. A synthesized test plan MUST pass through here before any
 browser action runs.
@@ -12,4 +12,5 @@ The human approves, edits, or rejects the plan before any browser action runs.
 
 Nothing the agent infers reaches a real cursor without passing this gate.
 
-_Not yet implemented._
+Implemented: `render.mjs` (renderPlan / approveOrThrow) + `edit.mjs` (edit loop).
+Wired into `simman synthesize` as an interactive TTY gate (approve / edit in $EDITOR / reject).

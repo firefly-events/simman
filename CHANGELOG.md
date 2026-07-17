@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-07-16
+
+### Added
+
+- **`simman synthesize <url> "<goal>"`** — the autonomous loop, human-gated: the
+  agent explores the page and compiles the goal into a test plan; an interactive
+  approval gate (approve / edit in `$EDITOR` / reject) blocks execution until a
+  human signs off; the approved plan is saved as plain scenario YAML and run.
+  `--no-run` saves without executing; exit code 3 = rejected at gate.
+- **User-defined truth signals** (object form): `{ kind: network, match, method? }`
+  observes the app's own API calls; `{ kind: element_enabled, selector? | role?/name? }`
+  checks real DOM enabled-state. Authoritative over the vision judge when declared.
+  Legacy `posted` / `cta_enabled` string aliases still parse (deprecated).
+- `--out <dir>` flag for where synthesized scenarios are saved.
+- CLI validates `--coords` and `--provider` values at parse time.
+
+### Changed
+
+- Report footer now summarizes declared truth-signal outcomes (`truth n/m`)
+  instead of the app-specific `posted=` field.
+- 116 tests (from 99): truth-signal validation, network matcher, synthesized-plan
+  YAML round-trip.
+
+### Removed
+
+- Legacy standalone CLI (`main()`) inside `engine/flow-runner.mjs` — superseded by
+  `simman run` since 0.1.0.
+
 ## [0.1.1] - 2026-07-16
 
 ### Security

@@ -25,7 +25,12 @@
  *
  *   Primitive: { act: Act, args: object }
  *   Act: "goto" | "fill" | "tapRole" | "tapText" | "wait"
- *   TruthSignal: "cta_enabled" | "posted"  (extensible via KNOWN_TRUTH_SIGNALS)
+ *   TruthSignal (object form — preferred):
+ *     { kind: "network",         match: string, method?: string }
+ *     { kind: "element_enabled", selector?: string, role?: string, name?: string }
+ *       (element_enabled requires at least one of selector / name)
+ *   TruthSignal (legacy string aliases — deprecated):
+ *     "posted" | "cta_enabled"  (extensible via KNOWN_TRUTH_SIGNALS)
  *
  * Reference: docs/overlay-schema.md
  */
@@ -34,6 +39,8 @@ import { readFileSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 
 export const KNOWN_TRUTH_SIGNALS = new Set(['cta_enabled', 'posted']);
+
+export const KNOWN_TRUTH_KINDS = new Set(['network', 'element_enabled']);
 
 export const KNOWN_ACT_VALUES = new Set(['goto', 'fill', 'tapRole', 'tapText', 'wait']);
 
@@ -170,10 +177,69 @@ function validateStep(step, scenarioId, index) {
   }
 
   if (step.truth !== undefined) {
-    if (!KNOWN_TRUTH_SIGNALS.has(step.truth)) {
+    validateTruth(step.truth, scenarioId, index, loc);
+  }
+}
+
+/**
+ * Validate a truth signal — legacy string alias or object form.
+ * Exported so scenario.mjs and the gate validate with the same rules.
+ */
+export function validateTruth(truth, scenarioId, index, loc = `scenario "${scenarioId}" step ${index}`) {
+  if (typeof truth === 'string') {
+    if (!KNOWN_TRUTH_SIGNALS.has(truth)) {
       throw makeError(
         'VALIDATION_ERROR',
-        `${loc}: unknown truth signal ${JSON.stringify(step.truth)}; known: [${[...KNOWN_TRUTH_SIGNALS].join(', ')}]`,
+        `${loc}: unknown truth signal ${JSON.stringify(truth)}; known aliases: [${[...KNOWN_TRUTH_SIGNALS].join(', ')}] — or use the object form { kind: "network"|"element_enabled", ... }`,
+        scenarioId,
+        index,
+      );
+    }
+    return;
+  }
+
+  if (!truth || typeof truth !== 'object' || Array.isArray(truth)) {
+    throw makeError(
+      'VALIDATION_ERROR',
+      `${loc}: "truth" must be a known alias string or an object { kind, ... }`,
+      scenarioId,
+      index,
+    );
+  }
+
+  if (!KNOWN_TRUTH_KINDS.has(truth.kind)) {
+    throw makeError(
+      'VALIDATION_ERROR',
+      `${loc}: truth "kind" must be one of [${[...KNOWN_TRUTH_KINDS].join(', ')}]; got: ${JSON.stringify(truth.kind)}`,
+      scenarioId,
+      index,
+    );
+  }
+
+  if (truth.kind === 'network') {
+    if (typeof truth.match !== 'string' || !truth.match.trim()) {
+      throw makeError(
+        'VALIDATION_ERROR',
+        `${loc}: truth kind "network" requires "match" (URL substring)`,
+        scenarioId,
+        index,
+      );
+    }
+    if (truth.method !== undefined && (typeof truth.method !== 'string' || !truth.method.trim())) {
+      throw makeError(
+        'VALIDATION_ERROR',
+        `${loc}: truth "method" must be a non-empty string when present (e.g. "POST")`,
+        scenarioId,
+        index,
+      );
+    }
+  } else { // element_enabled
+    const hasSelector = typeof truth.selector === 'string' && truth.selector.trim();
+    const hasName = typeof truth.name === 'string' && truth.name.trim();
+    if (!hasSelector && !hasName) {
+      throw makeError(
+        'VALIDATION_ERROR',
+        `${loc}: truth kind "element_enabled" requires "selector" (css) or "name" (visible/accessible text)`,
         scenarioId,
         index,
       );

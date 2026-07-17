@@ -20,6 +20,7 @@ const USAGE = `simman — selectorless vision-cursor web testing
 
 Usage:
   simman run <scenario.yaml> [options]
+  simman synthesize <url> "<goal>" [options]
   simman doctor [--local] [--fix]
 
 Options:
@@ -31,9 +32,15 @@ Options:
   --no-headless         run with a visible browser
   --json                print the raw JSON report instead of the human summary
   --fix                 (doctor) auto-install missing playwright browsers
+  --out <dir>           (synthesize) directory for the saved scenario (default: scenarios/)
+  --no-run              (synthesize) save the approved plan without executing it
   -h, --help            show this help
 
-Exit codes: 0 pass · 1 fail · 2 error`;
+simman synthesize compiles a natural-language goal into a test plan, shows it at
+an approval gate (approve / edit in $EDITOR / reject), saves the approved plan as
+a plain scenario YAML, and runs it. Nothing executes without approval.
+
+Exit codes: 0 pass · 1 fail · 2 error · 3 rejected at gate`;
 
 /**
  * Run the CLI. Returns a process exit code (does not call process.exit).
@@ -58,6 +65,8 @@ export async function run(argv, io = {}) {
         headless: { type: 'boolean', default: true },
         json: { type: 'boolean', default: false },
         fix: { type: 'boolean', default: false },
+        out: { type: 'string' },
+        'no-run': { type: 'boolean', default: false },
         help: { type: 'boolean', short: 'h', default: false },
       },
     });
@@ -70,9 +79,21 @@ export async function run(argv, io = {}) {
   const { values, positionals } = parsed;
   const [cmd, file] = positionals;
 
+  if (values.coords && !['px', 'norm'].includes(values.coords)) {
+    errLog(`--coords must be "px" or "norm"; got "${values.coords}"`); return 2;
+  }
+  if (values.provider && !['google', 'gemini', 'openai', 'anthropic', 'mlx', 'local'].includes(values.provider)) {
+    errLog(`--provider must be one of google | openai | anthropic | mlx; got "${values.provider}"`); return 2;
+  }
+
   if (values.help || !cmd) { log(USAGE); return values.help ? 0 : 2; }
   if (cmd === 'doctor') return doctor({ local: values.local, fix: values.fix }, { log });
-  if (cmd !== 'run') { errLog(`unknown command "${cmd}". ${''}`); errLog(USAGE); return 2; }
+  if (cmd === 'synthesize') {
+    const { synthesizeCommand } = await import('./synthesize.mjs');
+    const [, url, goal] = positionals;
+    return synthesizeCommand({ url, goal, values }, io);
+  }
+  if (cmd !== 'run') { errLog(`unknown command "${cmd}".`); errLog(USAGE); return 2; }
   if (!file) { errLog('run: a scenario file path is required'); errLog(USAGE); return 2; }
 
   let loaded; let providers;

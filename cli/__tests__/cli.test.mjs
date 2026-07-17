@@ -23,7 +23,7 @@ test('renderReport: passing run', () => {
   assert.match(txt, /scenario "publish"/);
   assert.match(txt, /✓ 1\. Enter a caption  \[native-act\]/);
   assert.match(txt, /✓ 2\. Publish  \[truth:pass  vision→BUTTON\]/);
-  assert.match(txt, /PASS  2\/2 steps   posted=true/);
+  assert.match(txt, /PASS  2\/2 steps   truth 1\/1/);
 });
 
 test('renderReport: failing run shows why + glyph', () => {
@@ -33,7 +33,7 @@ test('renderReport: failing run shows why + glyph', () => {
   });
   assert.match(txt, /✗ 1\. Click/);
   assert.match(txt, /why: not found/);
-  assert.match(txt, /FAIL  0\/1 steps   posted=false/);
+  assert.match(txt, /FAIL  0\/1 steps$/m);
 });
 
 test('renderReport: fatal entry', () => {

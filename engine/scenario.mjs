@@ -33,7 +33,7 @@
  */
 import { readFileSync } from 'node:fs';
 import yaml from 'js-yaml';
-import { validateBindings, KNOWN_TRUTH_SIGNALS } from './bindings.mjs';
+import { validateBindings, validateTruth } from './bindings.mjs';
 
 const ACT_KEYS = ['fill', 'tapRole', 'tapText', 'goto', 'wait', 'vision'];
 
@@ -84,9 +84,10 @@ function compileStep(step, i, source) {
   }
 
   if (step.truth !== undefined) {
-    if (!KNOWN_TRUTH_SIGNALS.has(step.truth)) {
-      throw err(`${at}: unknown truth signal ${JSON.stringify(step.truth)}; known: [${[...KNOWN_TRUTH_SIGNALS].join(', ')}]`, source);
-    }
+    // Same rules as the engine's validator: legacy alias string or object form
+    // ({ kind: "network"|"element_enabled", ... }). Re-thrown as SCENARIO_INVALID.
+    try { validateTruth(step.truth, '(authoring)', i, at); }
+    catch (e) { throw err(e.message, source); }
     ov.truth = step.truth;
   }
 

@@ -1,4 +1,4 @@
-# agent/ — synthesis layer (stub)
+# agent/ — synthesis layer
 
 LLM layer that compiles **intent → structured flow** for the `engine/` to run.
 
@@ -13,4 +13,4 @@ structured plan. Execution belongs to `engine/`, and only after `gate/` approval
 Decided: full synthesis from a bare goal (autonomous), made safe by the mandatory
 approval gate. See `../docs/scope.md`.
 
-_Not yet implemented._
+Implemented: `synthesize.mjs` — exposed via `simman synthesize <url> "<goal>"`.

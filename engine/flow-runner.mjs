@@ -23,9 +23,6 @@
  *   native(page, step, opts)            → Promise<void>
  *   runFlow(page, scenario, binding, opts) → RunReport
  *
- * CLI usage (standalone):
- *   SCENARIO=<path-or-id> BINDING=<path-or-id> node flow-runner.mjs
- *
  * Config env vars:
  *   MLX_URL      — MLX completions endpoint (default: http://localhost:8089/v1/chat/completions)
  *   MLX_MODEL    — model id (default: mlx-community/Qwen2.5-VL-7B-Instruct-4bit)
@@ -34,19 +31,9 @@
  *   VIEWPORT_W   — browser viewport width  (default: 1280)
  *   VIEWPORT_H   — browser viewport height (default: 800)
  *   BASE_URL     — app base URL for goto steps using relative paths (default: http://localhost:3100)
- *   SCENARIO     — path or bare id (resolved against scenarios/) for CLI mode
- *   BINDING      — path to overlay JSON; defaults to scenarios/flow-bindings/<id>.json
- *   HEADLESS     — "false" to show browser in CLI mode (default: true)
  */
 
-import { readFileSync } from 'node:fs';
-import { resolve, join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-import { loadBindings, resolveBindingsPath } from './bindings.mjs';
 import { askVision, resolveProviderConfig } from './providers.mjs';
-
-const __dir = dirname(fileURLToPath(import.meta.url));
 
 // ─── Default config (env-driven; overridable per-call via opts) ──────────────
 
@@ -281,16 +268,55 @@ export async function native(page, step, opts = {}) {
 }
 
 // ─── Truth-signal evaluators ──────────────────────────────────────────────────
+//
+// Object form (preferred):
+//   { kind: "network",         match: "<url substring>", method?: "POST" }
+//   { kind: "element_enabled", selector?: "<css>", role?: "button", name?: "<text>" }
+// Legacy string aliases (deprecated, kept for back-compat):
+//   "posted"      ≙ { kind: "network", match: "/api/social/post", method: "POST" }
+//   "cta_enabled" ≙ { kind: "element_enabled", role: "button", name: "post now" }
+
+export const LEGACY_TRUTH_ALIASES = {
+  posted: { kind: 'network', match: '/api/social/post', method: 'POST' },
+  cta_enabled: { kind: 'element_enabled', role: 'button', name: 'post now' },
+};
+
+/** Pure request matcher — exported for tests. */
+export function matchesNetworkTruth(spec, { url, method }) {
+  if (!url || !url.includes(spec.match)) return false;
+  if (spec.method && String(method).toUpperCase() !== spec.method.toUpperCase()) return false;
+  return true;
+}
+
+function resolveTruth(signal) {
+  if (typeof signal === 'string') {
+    const t = LEGACY_TRUTH_ALIASES[signal];
+    if (!t) throw new Error(`unknown truth signal: ${signal}`);
+    return t;
+  }
+  return signal;
+}
 
 async function evalTruthSignal(page, signal, networkState) {
-  if (signal === 'posted') {
-    return !!networkState.posted;
+  const truth = resolveTruth(signal);
+
+  if (truth.kind === 'network') {
+    return networkState.requests.some((r) => matchesNetworkTruth(truth, r));
   }
-  if (signal === 'cta_enabled') {
-    return page.evaluate(() => {
-      const el = [...document.querySelectorAll('button')].find(
-        (x) => /post now/i.test(x.textContent || ''),
-      );
+
+  if (truth.kind === 'element_enabled') {
+    return page.evaluate(({ selector, role, name }) => {
+      let candidates;
+      if (selector) {
+        candidates = [...document.querySelectorAll(selector)];
+      } else {
+        const sel = role === 'button' || !role
+          ? 'button,[role="button"],input[type="submit"],input[type="button"]'
+          : `[role="${role}"]`;
+        candidates = [...document.querySelectorAll(sel)];
+      }
+      const nameRe = name ? new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') : null;
+      const el = candidates.find((x) => !nameRe || nameRe.test(x.textContent || x.value || x.getAttribute('aria-label') || ''));
       if (!el) return false;
       const cs = getComputedStyle(el);
       return (
@@ -299,9 +325,10 @@ async function evalTruthSignal(page, signal, networkState) {
         parseFloat(cs.opacity) > 0.1 &&
         el.getBoundingClientRect().width > 0
       );
-    }).catch(() => false);
+    }, { selector: truth.selector || null, role: truth.role || null, name: truth.name || null }).catch(() => false);
   }
-  throw new Error(`unknown truth signal: ${signal}`);
+
+  throw new Error(`unknown truth kind: ${truth.kind}`);
 }
 
 // ─── Pass precedence (hybrid V&V) ─────────────────────────────────────────────
@@ -336,11 +363,18 @@ export function decidePass(rec, b = {}) {
 //   opts.onStep(rec) — optional callback after each step (for streaming progress)
 
 export async function runFlow(page, scenario, binding, opts = {}) {
-  const networkState = { posted: false };
+  // Record requests for network truth-signals. Only url+method are kept, capped
+  // so a chatty SPA can't grow the array unbounded during a long flow.
+  const networkState = { posted: false, requests: [] };
+  const MAX_RECORDED = 1000;
 
   // Named handler so we can detach it — callers may reuse an authenticated
   // page/context across runs; an anonymous listener would accumulate.
   const onRequest = (req) => {
+    if (networkState.requests.length < MAX_RECORDED) {
+      networkState.requests.push({ url: req.url(), method: req.method() });
+    }
+    // Legacy report field (kept for back-compat with the "posted" alias).
     if (req.url().includes('/api/social/post') && req.method() === 'POST') {
       networkState.posted = true;
     }
@@ -503,61 +537,4 @@ export async function runActualFlow(options = {}) {
   } finally {
     await browser.close();
   }
-}
-
-// ─── CLI entry point ──────────────────────────────────────────────────────────
-//
-// SCENARIO= path or bare id (resolved against <cwd>/scenarios/<id>.yaml)
-// BINDING=  path to overlay JSON (default: <cwd>/scenarios/flow-bindings/<id>.json)
-// HEADLESS= "false" to show browser
-
-async function main() {
-  const { chromium } = await import('playwright');
-  const jsYaml = await import('js-yaml').catch(() => null);
-
-  const cwd = process.cwd();
-  const scenarioArg = process.env.SCENARIO || 'campaign-compose';
-  const headless = (process.env.HEADLESS ?? 'true') !== 'false';
-  const vp = DEFAULTS.viewport;
-
-  // Load scenario YAML (bypass loadScenario — runner doesn't enforce mode; am-3 adds live-walk)
-  const scenarioPath = scenarioArg.includes('/') || scenarioArg.endsWith('.yaml')
-    ? resolve(scenarioArg)
-    : resolve(join(cwd, 'scenarios', `${scenarioArg}.yaml`));
-  const scenarioRaw = readFileSync(scenarioPath, 'utf8');
-  const scenario = jsYaml ? jsYaml.default.load(scenarioRaw) : JSON.parse(scenarioRaw);
-
-  // Load overlay binding
-  const bindingPath = process.env.BINDING
-    ? resolve(process.env.BINDING)
-    : resolveBindingsPath(scenario.id, { cwd });
-  const binding = loadBindings(bindingPath, scenario.id);
-
-  const browser = await chromium.launch({ headless });
-  const page = await (await browser.newContext({ viewport: vp })).newPage();
-
-  try {
-    // Navigate to base URL (auth is caller's responsibility in library mode;
-    // for standalone invocation configure session storage or cookie state via Playwright)
-    await page.goto(DEFAULTS.baseUrl + '/', { waitUntil: 'domcontentloaded' });
-    await page.waitForLoadState('networkidle').catch(() => {});
-
-    const result = await runFlow(page, scenario, binding, {
-      mlx: DEFAULTS.mlx,
-      model: DEFAULTS.model,
-      coords: DEFAULTS.coords,
-      snapR: DEFAULTS.snapR,
-      viewport: vp,
-      baseUrl: DEFAULTS.baseUrl,
-    });
-
-    console.log(JSON.stringify({ arm: 'standalone', ...result }, null, 2));
-  } finally {
-    await browser.close();
-  }
-}
-
-// Run when invoked directly
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
-  main().catch((e) => { console.error(e); process.exit(1); });
 }

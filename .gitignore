@@ -26,3 +26,4 @@ simman.config.yml
 simman.config.json
 .simmanrc.yaml
 .simmanrc.json
+node-compile-cache/

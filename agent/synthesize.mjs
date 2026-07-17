@@ -19,32 +19,35 @@ const SCHEMA_HINT = `Return ONLY a JSON object, no prose, no code fences:
   "overlay":  { "scenario": "<same id>", "steps": [ <one entry per scenario step, same order> ] }
 }
 Each overlay step is either:
-  native:  { "how": "native", "act": "fill"|"tapRole"|"tapText"|"goto"|"wait", "args": {...}, "truth"?: "cta_enabled"|"posted" }
+  native:  { "how": "native", "act": "fill"|"tapRole"|"tapText"|"goto"|"wait", "args": {...}, "truth"?: TruthSignal }
            - fill:    args { "selector": "<css>", "value": "<text>" }
            - tapRole: args { "role": "button", "name": "<accessible name>" }
            - tapText: args { "text": "<visible text>" }
            - goto:    args { "url": "<abs>" } or { "path": "/rel" }
            - wait:    args { "ms": <int> }
-  vision:  { "how": "vision", "target": "<plain-language description of the element>", "truth"?: ... }
+  vision:  { "how": "vision", "target": "<plain-language description of the element>", "truth"?: TruthSignal }
+TruthSignal (optional DOM/network ground-truth that OVERRIDES the vision judge):
+  { "kind": "network",         "match": "<URL substring the app calls on success>", "method"?: "POST" }
+  { "kind": "element_enabled", "selector"?: "<css>", "role"?: "button", "name"?: "<visible button text>" }
 Rules:
 - Allowed acts ONLY: "goto", "fill", "tapRole", "tapText", "wait". Never "click", "type", "press".
 - Use the key "act" (not "action") inside overlay steps. "action" belongs only in scenario steps.
 - Prefer native with a selector taken from the elements list. Use vision ONLY when no stable selector exists.
-- Declare truth "cta_enabled" when a primary button becomes enabled after input; "posted" when an action submits/publishes.
+- Declare an element_enabled truth when a primary button becomes enabled after input; a network truth when an action submits/publishes (only if you can infer the API path from the page — otherwise omit truth and rely on the vision judge).
 - overlay.steps[i] pairs with scenario.steps[i]; same length, same order.
 - ONE form field per step: each input/textarea/select you must fill is its OWN step. NEVER bundle two fields ("fill title and caption") into a single step — emit one fill step per field. Both the scenario step and its overlay step describe a single field.
 - If a primary button is disabled until several fields are filled, fill EVERY required field (each its own step) before the click step. Keep clicks un-decomposed (one tap = one step); only fills are per-field.
 
 EXAMPLE (different page — match this exact shape):
 {"scenario":{"id":"login","steps":[{"action":"Enter email and submit","expected":"the form accepts the email"},{"action":"Click Sign in","expected":"the dashboard is shown"}]},
- "overlay":{"scenario":"login","steps":[{"how":"native","act":"fill","args":{"selector":"#email","value":"a@b.com"},"truth":"cta_enabled"},{"how":"native","act":"tapText","args":{"text":"Sign in"},"truth":"posted"}]}}`;
+ "overlay":{"scenario":"login","steps":[{"how":"native","act":"fill","args":{"selector":"#email","value":"a@b.com"},"truth":{"kind":"element_enabled","role":"button","name":"Sign in"}},{"how":"native","act":"tapText","args":{"text":"Sign in"},"truth":{"kind":"network","match":"/api/login","method":"POST"}}]}}`;
 
 const ELEMENT_SELECTOR = 'a[href],button,input,textarea,select,[role="button"],[role="link"]';
 
 /** Capture interactable elements + a screenshot for the planner. */
 export async function capturePageContext(page, { maxElements = 60 } = {}) {
   const elements = await page.$$eval(
-    'a[href],button,input,textarea,select,[role="button"],[role="link"]',
+    ELEMENT_SELECTOR,
     (els, max) => els.map((el) => {
       const r = el.getBoundingClientRect();
       const v = el.value !== undefined ? el.value : '';
@@ -69,8 +72,8 @@ export async function capturePageContext(page, { maxElements = 60 } = {}) {
 
 /** Suggest the most stable selector for an element (mirrors engine native acts). */
 function suggestSelector(e) {
-  if (e.testid) return `[data-testid=${e.testid}]`;
-  if (e.id) return `#${e.id}`;
+  if (e.testid) return `[data-testid="${e.testid}"]`;
+  if (e.id) return `#${globalThis.CSS?.escape ? globalThis.CSS.escape(e.id) : e.id}`;
   if (e.name) return `[name="${e.name}"]`;
   return null;
 }

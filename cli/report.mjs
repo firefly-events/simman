@@ -37,6 +37,12 @@ export function renderReport(report, opts = {}) {
   }
 
   lines.push(`  ${'─'.repeat(48)}`);
-  lines.push(`  ${report.flowPassed ? 'PASS' : 'FAIL'}  ${report.stepsPassed} steps   posted=${report.posted}`);
+  // Summarize truth-signal outcomes only when the scenario declared any —
+  // an app-agnostic report line (the old `posted=` leaked one app's signal).
+  const truthSteps = (report.steps || []).filter((s) => !s.fatal && s.truth !== undefined);
+  const truthNote = truthSteps.length
+    ? `   truth ${truthSteps.filter((s) => s.truth).length}/${truthSteps.length}`
+    : '';
+  lines.push(`  ${report.flowPassed ? 'PASS' : 'FAIL'}  ${report.stepsPassed} steps${truthNote}`);
   return lines.join('\n');
 }

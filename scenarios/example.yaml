@@ -17,12 +17,17 @@ steps:
   - action: Enter a caption
     expected: The Post button becomes enabled
     do: { fill: "[data-testid=caption-input]", value: "Hello from SimMan" }
-    truth: cta_enabled            # DOM: the CTA is no longer disabled
+    truth:                        # DOM ground truth: the CTA is no longer disabled
+      kind: element_enabled
+      name: Post
 
   - action: Click Post
     expected: The post is submitted
     do: { tapRole: "Post" }       # role defaults to button
-    truth: posted                 # network: the expected POST fired
+    truth:                        # network ground truth: the app's publish call fired
+      kind: network
+      match: /api/posts
+      method: POST
 
   - action: Confirm visually
     expected: A success confirmation is shown
