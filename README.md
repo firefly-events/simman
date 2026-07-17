@@ -5,6 +5,9 @@
 # SimMan
 
 ![CI](https://github.com/firefly-events/simman/actions/workflows/ci.yml/badge.svg)
+[![npm](https://img.shields.io/npm/v/simman)](https://www.npmjs.com/package/simman)
+
+**[Website](https://firefly-events.github.io/simman/)** · **[npm](https://www.npmjs.com/package/simman)**
 
 **Simulated Manual** — selectorless, vision-grounded, real-cursor testing for web.
 
