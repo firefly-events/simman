@@ -66,7 +66,7 @@
   <p class="tagline">Your E2E tests break because of <em>selectors</em>, not bugs.<br>
   A vision model is the <b>eyes</b>. A real cursor is the <b>hands</b>.</p>
   <div class="badges">
-    <span class="badge alpha">alpha 0.1</span>
+    <span class="badge alpha">alpha 0.2</span>
     <span class="badge">Apache-2.0</span>
     <span class="badge">npm i -g simman</span>
     <span class="badge">model-agnostic</span>
@@ -95,10 +95,10 @@
   <div class="grid">
     <div class="card"><h3>No brittle selectors</h3><p>CSS selectors break on refactors, not bugs. SimMan clicks what a user <em>sees</em> — so tests survive markup churn and catch visual failures DOM tools are blind to.</p></div>
     <div class="card"><h3>Deterministic core</h3><p>No LLM inside the engine. A structured scenario drives Playwright deterministically; vision is used only where selectors would be. 99 tests, headless, no API key needed.</p></div>
-    <div class="card"><h3>Truth signals</h3><p>Optional DOM/network assertions are <em>authoritative</em> — when declared, ground truth overrides the vision judge. Hybrid verification, not vibes.</p></div>
+    <div class="card"><h3>Truth signals</h3><p>Declare your app's own ground truth per step — a network call observed (<code>kind: network</code>) or an element actually enabled (<code>kind: element_enabled</code>). When declared, it <em>overrides</em> the vision judge. Hybrid verification, not vibes.</p></div>
     <div class="card"><h3>Local-first option</h3><p>Run grounding fully offline on Apple Silicon with Qwen2.5-VL via MLX — screenshots never leave your machine. Or use hosted Gemini with zero setup.</p></div>
     <div class="card"><h3>Readable by anyone</h3><p>Scenarios are plain YAML in user language — <code>action</code> / <code>expected</code> per step. A PM can review your test plan.</p></div>
-    <div class="card"><h3>Human-gated autonomy</h3><p>On the roadmap: describe a goal, the agent synthesizes a plan — and a human must approve it before any browser action runs. Agent proposes, human disposes.</p></div>
+    <div class="card"><h3>Human-gated autonomy</h3><p><code>simman synthesize</code>: describe a goal, the agent explores the page and proposes a plan — and a human must approve it (approve / edit / reject) before any browser action runs. Agent proposes, human disposes.</p></div>
   </div>
 </section>
 
@@ -113,17 +113,27 @@ npx playwright install chromium
 simman doctor
 simman run scenarios/example.yaml --base-url http://localhost:3100</pre>
 
+<pre><span class="cmt"># or: describe the goal, approve the plan, get a repeatable test</span>
+simman synthesize http://localhost:3100 <span class="str">"compose a post and publish it"</span>
+
+<span class="cmt">#   → agent explores the page and proposes a plan</span>
+<span class="cmt">#   → gate: [a]pprove · [e]dit in $EDITOR · [r]eject   (nothing runs unapproved)</span>
+<span class="cmt">#   → saved scenarios/compose-post.yaml — re-runs forever, no LLM needed</span></pre>
+
 <pre><span class="key">id:</span> <span class="str">compose-and-post</span>
 <span class="key">steps:</span>
   - <span class="key">action:</span> <span class="str">"Type a greeting into the message box"</span>
     <span class="key">expected:</span> <span class="str">"The message box contains the greeting"</span>
   - <span class="key">action:</span> <span class="str">"Click the Post button"</span>
     <span class="key">expected:</span> <span class="str">"A confirmation appears"</span>
-    <span class="key">truth:</span> <span class="str">posted</span>   <span class="cmt"># DOM/network signal — overrides the vision judge</span></pre>
+    <span class="key">truth:</span>            <span class="cmt"># your app's ground truth — overrides the vision judge</span>
+      <span class="key">kind:</span> <span class="str">network</span>
+      <span class="key">match:</span> <span class="str">/api/posts</span>
+      <span class="key">method:</span> <span class="str">POST</span></pre>
 </section>
 
 <section>
-  <div class="note"><b>Alpha honesty:</b> the deterministic engine is hardened and shipping today. The autonomous synthesis layer (<code>agent/</code>) and approval gate (<code>gate/</code>) are scaffolded but not yet wired to the CLI. Built-in truth signals are being generalized — user-configurable signals are the top roadmap item.</div>
+  <div class="note"><b>Alpha honesty:</b> the deterministic engine is hardened (116 tests) and the full synthesize → gate → run loop ships as of 0.2 — verified end-to-end with a fully local model. Still alpha: scenario schema may change between minor releases, and hosted OpenAI/Anthropic adapters are code-complete but less battle-tested than Gemini and local MLX.</div>
 </section>
 
 <footer>
