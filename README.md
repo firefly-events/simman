@@ -101,6 +101,13 @@ A scenario is one authored YAML — `id`, optional `baseUrl`, and `steps` of
 `{ action, expected, do, truth? }`. See `scenarios/example.yaml` and
 `docs/overlay-schema.md` for the compiled engine format.
 
+> **Known alpha limitation — truth signals.** The two built-in truth signals
+> (`posted`, `cta_enabled`) currently match patterns from the app SimMan was
+> extracted from (a specific API route and button label), so they will not fire
+> against arbitrary apps yet. User-configurable truth signals (declare your own
+> URL pattern / element matcher in the scenario) are the top roadmap item.
+> Vision-based verification works everywhere today.
+
 ```bash
 npm test            # 99 tests — engine + cli + gate, headless, no API key needed
 ```
