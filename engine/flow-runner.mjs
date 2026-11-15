@@ -294,23 +294,25 @@ async function fillOrSelect(page, target, text) {
     : false;
   if (!isSelect) return target.fill(text);
   if (typeof page.waitForFunction === 'function') {
-    const element = await target.elementHandle();
-    try {
-      const match = await page.waitForFunction(({ select, wanted }) => {
-        const normalized = wanted.trim().replace(/\s+/g, ' ');
-        const options = [...select.options].filter((option) => !option.disabled && !option.parentElement?.disabled);
-        if (options.some((option) => option.label.trim().replace(/\s+/g, ' ') === normalized)) return 'label';
-        if (options.some((option) => option.value === wanted)) return 'value';
-        return false;
-      }, { select: element, wanted: text });
+    for (;;) {
+      const element = await target.elementHandle();
+      let kind;
       try {
-        const kind = await match.jsonValue();
-        return kind === 'label' ? target.selectOption({ label: text }) : target.selectOption({ value: text });
+        const match = await page.waitForFunction(({ select, wanted }) => {
+          if (!select.isConnected) return 'detached';
+          const normalized = wanted.trim().replace(/\s+/g, ' ');
+          const options = [...select.options].filter((option) => !option.disabled && !option.parentElement?.disabled);
+          if (options.some((option) => option.label.trim().replace(/\s+/g, ' ') === normalized)) return 'label';
+          if (options.some((option) => option.value === wanted)) return 'value';
+          return false;
+        }, { select: element, wanted: text });
+        try { kind = await match.jsonValue(); }
+        finally { await match.dispose(); }
       } finally {
-        await match.dispose();
+        await element.dispose();
       }
-    } finally {
-      await element.dispose();
+      if (kind === 'detached') continue;
+      return kind === 'label' ? target.selectOption({ label: text }) : target.selectOption({ value: text });
     }
   }
 

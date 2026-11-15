@@ -72,3 +72,18 @@ test('select label takes precedence over a colliding option value', async (t) =>
     await browser.close();
   }
 });
+
+test('fill follows a select that is replaced while its options are loading', async (t) => {
+  let browser;
+  try { browser = await chromium.launch(); } catch (error) { t.skip(`no browser: ${error.message}`); return; }
+  try {
+    const page = await browser.newPage();
+    page.setDefaultTimeout(650);
+    await page.setContent(`<select id="choice"><option>Loading</option></select>
+      <script>setTimeout(() => { document.querySelector('#choice').outerHTML='<select id="choice"><option>Choose</option><option value="target">Target</option></select>'; }, 150)</script>`);
+    await native(page, { act: 'fill', args: { selector: '#choice', value: 'Target' } });
+    assert.equal(await page.$eval('#choice', (el) => el.value), 'target');
+  } finally {
+    await browser.close();
+  }
+});
