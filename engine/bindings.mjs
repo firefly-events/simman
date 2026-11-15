@@ -24,7 +24,8 @@
  *     { how: "vision", target: string, setup?: Primitive[], truth?: TruthSignal }
  *
  *   Primitive: { act: Act, args: object }
- *   Act: "goto" | "fill" | "tapRole" | "tapText" | "wait"
+ *   Act: "goto" | "fill" | "tapRole" | "tapText" | "wait" | "capture"
+ *     (capture args: { name, width?, height? } — a full-page PNG into opts.capturesDir)
  *   TruthSignal (object form — preferred):
  *     { kind: "network",         match: string, method?: string }
  *     { kind: "element_enabled", selector?: string, role?: string, name?: string }
@@ -42,7 +43,7 @@ export const KNOWN_TRUTH_SIGNALS = new Set(['cta_enabled', 'posted']);
 
 export const KNOWN_TRUTH_KINDS = new Set(['network', 'element_enabled']);
 
-export const KNOWN_ACT_VALUES = new Set(['goto', 'fill', 'tapRole', 'tapText', 'wait']);
+export const KNOWN_ACT_VALUES = new Set(['goto', 'fill', 'tapRole', 'tapText', 'wait', 'capture']);
 
 const VALID_HOW = new Set(['native', 'vision']);
 
@@ -264,6 +265,15 @@ function validateNativeStep(step, scenarioId, index, loc) {
       scenarioId,
       index,
     );
+  }
+
+  if (step.act === 'tapRole') {
+    if (step.args.role !== undefined && (typeof step.args.role !== 'string' || !step.args.role.trim())) {
+      throw makeError('VALIDATION_ERROR', `${loc}: tapRole "role" must be a non-empty string when present`, scenarioId, index);
+    }
+    if (step.args.name !== undefined && (typeof step.args.name !== 'string' || !step.args.name.trim())) {
+      throw makeError('VALIDATION_ERROR', `${loc}: tapRole "name" must be a non-empty string when present`, scenarioId, index);
+    }
   }
 }
 

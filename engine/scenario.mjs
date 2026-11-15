@@ -25,17 +25,23 @@
  *
  * `do` is a single-act map. Exactly one of these keys selects the act:
  *   fill:    "<css>"  (+ value: "<text>")          → native fill
- *   tapRole: "<name>" | { role, name }             → native tapRole (role default button)
+ *   tapRole: "<name>" | { role?, name? }           → native tapRole (role default button)
+ *                                                  (omit name to select any role match)
  *   tapText: "<visible text>"                       → native tapText
  *   goto:    "<abs url>" | "/rel/path"              → native goto
  *   wait:    <ms:int>                               → native wait
  *   vision:  "<plain-language element description>" → vision grounding+click
+ *   capture: "<screen-name>" (+ width, height)      → native full-page PNG at
+ *            <--captures dir>/<screen-name>.png; width/height (200..4000) set
+ *            the viewport first. The step passes when the file is written.
  */
 import { readFileSync } from 'node:fs';
 import yaml from 'js-yaml';
 import { validateBindings, validateTruth } from './bindings.mjs';
 
-const ACT_KEYS = ['fill', 'tapRole', 'tapText', 'goto', 'wait', 'vision'];
+const ACT_KEYS = ['fill', 'tapRole', 'tapText', 'goto', 'wait', 'vision', 'capture'];
+const CAPTURE_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const viewportSide = (value) => Number.isInteger(value) && value >= 200 && value <= 4000;
 
 function err(msg, source) {
   const e = new Error(`${source ? source + ': ' : ''}${msg}`);
@@ -66,8 +72,12 @@ function compileStep(step, i, source) {
     let role = 'button'; let name;
     if (typeof v === 'string') { name = v; }
     else if (v && typeof v === 'object') { role = v.role || 'button'; name = v.name; }
-    if (typeof name !== 'string' || !name.trim()) throw err(`${at}: tapRole needs a "name" (string, or { role, name })`, source);
-    ov = { how: 'native', act: 'tapRole', args: { role, name } };
+    else throw err(`${at}: tapRole needs a name string or { role?, name? }`, source);
+    if (typeof role !== 'string' || !role.trim()) throw err(`${at}: tapRole role must be a non-empty string`, source);
+    if (name !== undefined && (typeof name !== 'string' || !name.trim())) throw err(`${at}: tapRole name must be a non-empty string when present`, source);
+    const args = { role };
+    if (name !== undefined) args.name = name;
+    ov = { how: 'native', act: 'tapRole', args };
   } else if (act === 'tapText') {
     if (typeof v !== 'string' || !v.trim()) throw err(`${at}: tapText needs a visible-text string`, source);
     ov = { how: 'native', act: 'tapText', args: { text: v } };
@@ -78,6 +88,17 @@ function compileStep(step, i, source) {
     const ms = Number(v);
     if (!Number.isFinite(ms) || ms < 0) throw err(`${at}: wait needs a non-negative millisecond number`, source);
     ov = { how: 'native', act: 'wait', args: { ms } };
+  } else if (act === 'capture') {
+    if (typeof v !== 'string' || !CAPTURE_NAME.test(v)) {
+      throw err(`${at}: capture needs a screen name matching ${CAPTURE_NAME}`, source);
+    }
+    const args = { name: v };
+    for (const side of ['width', 'height']) {
+      if (step.do[side] === undefined) continue;
+      if (!viewportSide(step.do[side])) throw err(`${at}: capture ${side} must be an integer from 200 to 4000`, source);
+      args[side] = step.do[side];
+    }
+    ov = { how: 'native', act: 'capture', args };
   } else { // vision
     if (typeof v !== 'string' || !v.trim()) throw err(`${at}: vision needs a description string`, source);
     ov = { how: 'vision', target: v };

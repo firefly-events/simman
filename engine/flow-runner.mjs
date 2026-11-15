@@ -33,6 +33,9 @@
  *   BASE_URL     — app base URL for goto steps using relative paths (default: http://localhost:3100)
  */
 
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
 import { askVision, resolveProviderConfig } from './providers.mjs';
 
 // ─── Default config (env-driven; overridable per-call via opts) ──────────────
@@ -231,6 +234,92 @@ export async function visionTap(page, label, opts = {}) {
 // Mechanical hands — deterministic Playwright primitives. Goto supports both
 // absolute URLs (args.url) and relative paths (args.path, prepended with BASE_URL).
 
+// A LATE VALUE: `{{waitFile:<absolute path>}}` as the whole fill value means
+// "wait until that file exists, then type its trimmed content". A caller that
+// learns a value only while the run is under way (an emailed sign-in code that
+// an earlier step requested) writes the file then. Any other string is typed
+// as given. The wait is bounded (opts.waitFileTimeoutMs, else
+// SIMMAN_WAITFILE_TIMEOUT_MS, else 60 s) and an empty file keeps waiting.
+const WAIT_FILE = /^\{\{waitFile:(\/[^{}]+)\}\}$/;
+
+export async function lateValue(value, opts = {}) {
+  const match = typeof value === 'string' ? WAIT_FILE.exec(value) : null;
+  if (!match) return value;
+  const file = match[1];
+  const limit = Number(opts.waitFileTimeoutMs ?? process.env.SIMMAN_WAITFILE_TIMEOUT_MS ?? 60000);
+  const pollMs = Number(opts.waitFilePollMs ?? 100);
+  const until = Date.now() + (Number.isFinite(limit) && limit > 0 ? limit : 60000);
+  for (;;) {
+    try {
+      const text = (await readFile(file, 'utf8')).trim();
+      if (text !== '') return text;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    if (Date.now() >= until) throw new Error('waitFile: no value arrived before the deadline');
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+}
+
+// VISIBLE FIRST. A responsive page often renders one control twice (a phone
+// list and a hidden desktop table); the first DOM match can be the hidden one,
+// and clicking it times out. Prefer the first visible match when the locator
+// supports filtering, else the plain first match.
+function visibleFirst(locator) {
+  if (typeof locator?.filter === 'function') {
+    try { return locator.filter({ visible: true }).first(); } catch { /* older Playwright */ }
+  }
+  return locator.first();
+}
+
+async function countVisible(locator) {
+  if (typeof locator?.count !== 'function') return 0;
+  if (typeof locator.filter === 'function') {
+    try { return await locator.filter({ visible: true }).count(); } catch { /* fall through */ }
+  }
+  return locator.count().catch(() => 0);
+}
+
+// The exact locator's first visible element when one exists, else the fallback's.
+async function exactFirst(exact, fallback) {
+  const count = await countVisible(exact).catch(() => 0);
+  return count > 0 ? visibleFirst(exact) : visibleFirst(fallback());
+}
+
+// FILL A <select> BY ITS OPTION. Playwright's fill refuses a select; a check
+// that "fills" Month with "March" means choose that option. Label first, then value.
+async function fillOrSelect(page, target, text) {
+  const isSelect = typeof target.evaluate === 'function'
+    ? await target.evaluate((el) => el.tagName === 'SELECT').catch(() => false)
+    : false;
+  if (!isSelect) return target.fill(text);
+  if (typeof page.waitForFunction === 'function') {
+    for (;;) {
+      const element = await target.elementHandle();
+      let kind;
+      try {
+        const match = await page.waitForFunction(({ select, wanted }) => {
+          if (!select.isConnected) return 'detached';
+          const normalized = wanted.trim().replace(/\s+/g, ' ');
+          const options = [...select.options].filter((option) => !option.disabled && !option.parentElement?.disabled);
+          if (options.some((option) => option.label.trim().replace(/\s+/g, ' ') === normalized)) return 'label';
+          if (options.some((option) => option.value === wanted)) return 'value';
+          return false;
+        }, { select: element, wanted: text });
+        try { kind = await match.jsonValue(); }
+        finally { await match.dispose(); }
+      } finally {
+        await element.dispose();
+      }
+      if (kind === 'detached') continue;
+      return kind === 'label' ? target.selectOption({ label: text }) : target.selectOption({ value: text });
+    }
+  }
+
+  try { await target.selectOption({ label: text }); }
+  catch { await target.selectOption({ value: text }); }
+}
+
 export async function native(page, step, opts = {}) {
   const base = opts.baseUrl || DEFAULTS.baseUrl;
   const args = step.args || {};
@@ -244,24 +333,81 @@ export async function native(page, step, opts = {}) {
     case 'fill': {
       // Overlay schema/tests accept `value`; runner historically read `text`.
       // Accept both so a valid overlay never silently fills ''.
-      const text = args.text ?? args.value ?? '';
-      await page.locator(args.selector).first().fill(text);
+      const text = await lateValue(args.text ?? args.value ?? '', opts);
+      await fillOrSelect(page, visibleFirst(page.locator(args.selector)), text);
       break;
     }
     case 'tapRole':
-      await page.getByRole(args.role, { name: new RegExp(args.name, 'i') }).first().click();
+      // EXACT NAME FIRST. A pattern match clicks the first element whose name
+      // CONTAINS the words: "Sign in" hit "Sign in with Google" above the real
+      // Sign in button. The pattern stays as the fallback for a partial name.
+      // NO SUCH ROLE: a control without the role (a <summary> that opens a
+      // <details> section, a styled <div>) is tapped by its exact visible text.
+      {
+        const role = args.role || 'button';
+        const exact = args.name == null
+          ? page.getByRole(role)
+          : page.getByRole(role, { name: args.name, exact: true });
+        let target = exact;
+        if (args.name != null) {
+          // Preserve exact-role priority, but wait on a union when no matching
+          // role or text is present yet so late accessible-name-only controls
+          // still get Playwright's configured action wait.
+          if (await countVisible(exact) === 0) {
+            let pattern;
+            try { pattern = new RegExp(String(args.name), 'i'); }
+            catch { pattern = new RegExp(String(args.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'); }
+            const partial = page.getByRole(role, { name: pattern });
+            const text = typeof page.getByText === 'function' ? page.getByText(args.name, { exact: true }) : null;
+            if (await countVisible(partial) > 0) target = partial;
+            else if (text && await countVisible(text) > 0) target = text;
+            else if (typeof exact.or === 'function' && partial && typeof partial.or === 'function') {
+              const candidates = exact.or(partial);
+              const waiting = text && typeof candidates.or === 'function' ? candidates.or(text) : candidates;
+              const visibleWaiting = typeof waiting.filter === 'function' ? waiting.filter({ visible: true }) : waiting;
+              await visibleWaiting.first().waitFor({ state: 'visible' });
+              if (await countVisible(exact) > 0) target = exact;
+              else if (await countVisible(partial) > 0) target = partial;
+              else if (text && await countVisible(text) > 0) target = text;
+              else throw new Error(`tapRole could not find a visible ${role} named ${JSON.stringify(args.name)}`);
+            } else if (text) target = text;
+            else target = partial;
+          }
+        }
+        await visibleFirst(target).click();
+      }
       break;
     case 'tapText': {
       // Tests/overlays use `text`; legacy callers used `name`. Accept both so
       // we never build /undefined/i and click an unintended element.
       const name = args.name ?? args.text;
       if (name == null) throw new Error('tapText requires args.text or args.name');
-      await page.getByText(new RegExp(name, 'i')).first().click();
+      await (await exactFirst(
+        page.getByText(name, { exact: true }),
+        () => page.getByText(new RegExp(name, 'i')),
+      )).click();
       break;
     }
     case 'wait':
       await page.waitForTimeout(args.ms || 300);
       break;
+    case 'capture': {
+      // A full-page PNG of the current screen, named by the scenario, for a
+      // caller that compares it with a design (hive-ultra wireframe call-outs).
+      if (!opts.capturesDir) throw new Error('capture needs a captures directory (--captures <dir>)');
+      if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(String(args.name ?? ''))) {
+        throw new Error(`capture needs a screen name; got ${JSON.stringify(args.name)}`);
+      }
+      if (args.width !== undefined || args.height !== undefined) {
+        const current = page.viewportSize?.() || opts.viewport || DEFAULTS.viewport;
+        await page.setViewportSize({ width: args.width ?? current.width, height: args.height ?? current.height });
+      }
+      await settle(page);
+      await mkdir(opts.capturesDir, { recursive: true });
+      const file = join(opts.capturesDir, `${args.name}.png`);
+      await writeFile(file, await page.screenshot({ fullPage: true }));
+      return { capture: file };
+    }
     default:
       throw new Error(`unknown native act: ${step.act}`);
   }
@@ -297,11 +443,50 @@ function resolveTruth(signal) {
   return signal;
 }
 
-async function evalTruthSignal(page, signal, networkState) {
+const TRUTH_WAIT_MS = Number(process.env.SIMMAN_TRUTH_WAIT_MS ?? 3000);
+
+export async function evalTruthSignal(page, signal, networkState) {
   const truth = resolveTruth(signal);
 
   if (truth.kind === 'network') {
     return networkState.requests.some((r) => matchesNetworkTruth(truth, r));
+  }
+
+  if (truth.kind === 'element_enabled' && !truth.selector && typeof page.getByRole === 'function') {
+    // ROLE LOOKUP THROUGH PLAYWRIGHT. A DOM query for [role="link"] misses a
+    // plain <a href> (its role is implicit), and the same for <input>, <h1>,
+    // <nav>: every such truth read false on a page that showed the element.
+    // getByRole knows implicit roles. Exact name first, then a partial match.
+    // Inspect every match so a hidden duplicate cannot mask a visible one.
+    // If neither match exists yet, wait once on their union and then recheck
+    // exact precedence within the same bounded budget.
+    const role = truth.role || 'button';
+    const escaped = truth.name ? truth.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : null;
+    const exact = truth.name ? page.getByRole(role, { name: truth.name, exact: true }) : page.getByRole(role);
+    const partial = escaped ? page.getByRole(role, { name: new RegExp(escaped, 'i') }) : exact;
+    const enabledRole = page.getByRole(role, { disabled: false });
+    const waitLimit = Number.isFinite(TRUTH_WAIT_MS) ? Math.max(0, TRUTH_WAIT_MS) : 3000;
+    const hasMatch = async (locator) => (await countVisible(locator)) > 0;
+    const isEligible = async (locator) => {
+      const eligible = typeof locator.and === 'function' ? locator.and(enabledRole) : locator;
+      return eligible.evaluateAll((elements) => elements.some((el) => {
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' &&
+        Number.parseFloat(style.opacity) > 0.1 && rect.width > 0;
+      })).catch(() => false);
+    };
+
+    if (await hasMatch(exact)) return isEligible(exact);
+    if (partial !== exact && await hasMatch(partial)) return isEligible(partial);
+    if (waitLimit > 0 && typeof exact.or === 'function' && partial && typeof partial.or === 'function') {
+      const union = exact.or(partial);
+      const visibleUnion = typeof union.filter === 'function' ? union.filter({ visible: true }) : union;
+      await visibleUnion.first().waitFor({ state: 'visible', timeout: waitLimit }).catch(() => {});
+      if (await hasMatch(exact)) return isEligible(exact);
+      if (partial !== exact && await hasMatch(partial)) return isEligible(partial);
+    }
+    return false;
   }
 
   if (truth.kind === 'element_enabled') {
@@ -400,7 +585,8 @@ export async function runFlow(page, scenario, binding, opts = {}) {
           rec.vision = await visionTap(page, b.target, opts);
           rec.acted = rec.vision.found;
         } else {
-          await native(page, b, opts);
+          const out = await native(page, b, opts);
+          if (out?.capture) rec.capture = out.capture;
           rec.acted = true;
         }
       } catch (e) {
@@ -408,12 +594,18 @@ export async function runFlow(page, scenario, binding, opts = {}) {
         rec.actError = String(e.message || e).split('\n')[0];
       }
 
-      // VERIFY
-      await page.waitForTimeout(500);
-      try {
-        rec.verify = await verify(page, step.expected, opts);
-      } catch (e) {
-        rec.verify = { pass: false, why: 'verify-error: ' + String(e.message || e).slice(0, 80) };
+      // VERIFY — a capture step is judged by its file, never by a vision verify
+      // of its `expected` text, which describes the capture, not the page.
+      const isNativeCapture = b.how !== 'vision' && b.act === 'capture';
+      if (isNativeCapture) {
+        rec.verify = { pass: !!rec.capture, why: rec.capture ? 'capture written' : 'no capture written' };
+      } else {
+        await page.waitForTimeout(500);
+        try {
+          rec.verify = await verify(page, step.expected, opts);
+        } catch (e) {
+          rec.verify = { pass: false, why: 'verify-error: ' + String(e.message || e).slice(0, 80) };
+        }
       }
 
       rec.posted = networkState.posted;
@@ -424,7 +616,9 @@ export async function runFlow(page, scenario, binding, opts = {}) {
         rec.truth = { signal: b.truth, pass: !!tp };
       }
 
-      const verdict = decidePass(rec, b);
+      const verdict = isNativeCapture && !rec.capture
+        ? { pass: false, basis: 'native-act' }
+        : decidePass(rec, b);
       rec.pass = verdict.pass;
       rec.passBasis = verdict.basis;
       report.push(rec);
@@ -461,6 +655,7 @@ export async function runFlow(page, scenario, binding, opts = {}) {
       pass: r.pass,
       passBasis: r.passBasis,
       why: r.verify?.why,
+      ...(r.capture ? { capture: r.capture } : {}),
       action: r.action,
       expected: r.expected,
     }),
@@ -493,7 +688,7 @@ export async function runActualFlow(options = {}) {
     mlxEndpoint, mlxModel,
     snapDom = false, retryLimit, stepTimeoutMs,
     baseUrl, coords, viewport, headless = true,
-    page: providedPage, onStep,
+    page: providedPage, onStep, capturesDir,
     // Provider selection (optional). `provider` sets a global default; `grounding`
     // and `verify` are per-role override blocks ({ provider, model, endpoint, apiKey }).
     // Omitted → local MLX defaults, preserving the mlxEndpoint/mlxModel convenience.
@@ -517,6 +712,7 @@ export async function runActualFlow(options = {}) {
     retryLimit: retryLimit ?? 3,
     timeoutMs: stepTimeoutMs ?? DEFAULTS.timeoutMs,
     onStep,
+    capturesDir,
     provider, grounding, verify,
   };
 

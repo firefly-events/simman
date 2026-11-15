@@ -76,10 +76,16 @@ const cases = [
   ['empty do', 'id: x\nsteps:\n  - { action: a, expected: a, do: {} }', /must name one act/],
   ['two acts in do', 'id: x\nsteps:\n  - { action: a, expected: a, do: { wait: 1, fill: "#x", value: v } }', /multiple acts/],
   ['fill without value', 'id: x\nsteps:\n  - { action: a, expected: a, do: { fill: "#x" } }', /fill needs a "value"/],
-  ['tapRole without name', 'id: x\nsteps:\n  - { action: a, expected: a, do: { tapRole: { role: button } } }', /tapRole needs a "name"/],
+  ['tapRole with empty name', 'id: x\nsteps:\n  - { action: a, expected: a, do: { tapRole: { role: button, name: "" } } }', /tapRole name must be a non-empty string/],
   ['unknown truth signal', 'id: x\nsteps:\n  - { action: a, expected: a, do: { wait: 1 }, truth: bogus }', /unknown truth signal/],
   ['bad wait', 'id: x\nsteps:\n  - { action: a, expected: a, do: { wait: "soon" } }', /wait needs a non-negative/],
 ];
+
+test('tapRole accepts a role with no accessible name', () => {
+  const { overlay } = parseScenario('id: x\nsteps:\n  - { action: Toggle, expected: toggled, do: { tapRole: { role: checkbox } } }');
+  assert.deepEqual(overlay.steps[0], { how: 'native', act: 'tapRole', args: { role: 'checkbox' } });
+});
+
 for (const [name, doc, re] of cases) {
   test(`rejects: ${name}`, () => {
     assert.throws(() => parseScenario(doc, 'src'), (e) => e.code === 'SCENARIO_INVALID' && re.test(e.message));

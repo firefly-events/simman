@@ -95,6 +95,7 @@ test('all native act values are accepted', () => {
     { act: 'goto', args: { url: 'https://x.com' } },
     { act: 'fill', args: { selector: 'input', value: 'v' } },
     { act: 'tapRole', args: { role: 'button', name: 'Submit' } },
+    { act: 'tapRole', args: { role: 'checkbox' } },
     { act: 'tapText', args: { text: 'Submit' } },
     { act: 'wait', args: { ms: 500 } },
   ];

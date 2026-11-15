@@ -1,0 +1,89 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { chromium } from 'playwright';
+
+import { native } from '../flow-runner.mjs';
+
+const HTML = `<!doctype html>
+<table style="display:none"><tr><td><a href="#desk" onclick="window.hit='desktop'">Ava Miller</a></td></tr></table>
+<ul><li><a href="#phone" onclick="window.hit='phone'">Ava Miller</a></li></ul>
+<label>Month <select id="m"><option value="">Month</option><option value="3">March</option><option value="4">April</option></select></label>
+<input id="name">`;
+
+test('taps reach the visible copy and fill chooses a select option', async (t) => {
+  let browser;
+  try { browser = await chromium.launch(); } catch (error) { t.skip(`no browser: ${error.message}`); return; }
+  try {
+    const page = await browser.newPage();
+    await page.setContent(HTML);
+    await native(page, { act: 'tapText', args: { text: 'Ava Miller' } });
+    assert.equal(await page.evaluate(() => window.hit), 'phone');
+    await native(page, { act: 'tapRole', args: { role: 'link', name: 'Ava Miller' } });
+    assert.equal(await page.evaluate(() => window.hit), 'phone');
+    await native(page, { act: 'fill', args: { selector: '#m', value: 'March' } });
+    assert.equal(await page.$eval('#m', (el) => el.value), '3');
+    await native(page, { act: 'fill', args: { selector: '#m', value: '4' } });
+    assert.equal(await page.$eval('#m', (el) => el.value), '4');
+    await native(page, { act: 'fill', args: { selector: '#name', value: 'Leo' } });
+    assert.equal(await page.$eval('#name', (el) => el.value), 'Leo');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('tapRole falls back to the exact text when no element has that role', async (t) => {
+  let browser;
+  try { browser = await chromium.launch(); } catch (error) { t.skip(`no browser: ${error.message}`); return; }
+  try {
+    const page = await browser.newPage();
+    await page.setContent('<details><summary>Rename</summary><input name="name"></details>');
+    await native(page, { act: 'tapRole', args: { role: 'button', name: 'Rename' } });
+    assert.equal(await page.$eval('details', (el) => el.open), true);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('tapRole handles punctuation and waits for a delayed accessible-name-only control', async (t) => {
+  let browser;
+  try { browser = await chromium.launch(); } catch (error) { t.skip(`no browser: ${error.message}`); return; }
+  try {
+    const page = await browser.newPage();
+    await page.setContent(`<button aria-label="Confirm [" onclick="window.hit='punctuation'"></button>
+      <script>setTimeout(() => { const b=document.createElement('button'); b.setAttribute('aria-label','Late access'); b.onclick=()=>window.hit='late'; document.body.append(b); }, 150)</script>`);
+    await native(page, { act: 'tapRole', args: { role: 'button', name: 'Confirm [' } });
+    assert.equal(await page.evaluate(() => window.hit), 'punctuation');
+    await native(page, { act: 'tapRole', args: { role: 'button', name: 'Late access' } });
+    assert.equal(await page.evaluate(() => window.hit), 'late');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('select label takes precedence over a colliding option value', async (t) => {
+  let browser;
+  try { browser = await chromium.launch(); } catch (error) { t.skip(`no browser: ${error.message}`); return; }
+  try {
+    const page = await browser.newPage();
+    await page.setContent('<select id="choice"><option value="March">Other</option><option value="same">March</option></select>');
+    await native(page, { act: 'fill', args: { selector: '#choice', value: 'March' } });
+    assert.equal(await page.$eval('#choice', (el) => el.selectedIndex), 1);
+  } finally {
+    await browser.close();
+  }
+});
+
+test('fill follows a select that is replaced while its options are loading', async (t) => {
+  let browser;
+  try { browser = await chromium.launch(); } catch (error) { t.skip(`no browser: ${error.message}`); return; }
+  try {
+    const page = await browser.newPage();
+    page.setDefaultTimeout(650);
+    await page.setContent(`<select id="choice"><option>Loading</option></select>
+      <script>setTimeout(() => { document.querySelector('#choice').outerHTML='<select id="choice"><option>Choose</option><option value="target">Target</option></select>'; }, 150)</script>`);
+    await native(page, { act: 'fill', args: { selector: '#choice', value: 'Target' } });
+    assert.equal(await page.$eval('#choice', (el) => el.value), 'target');
+  } finally {
+    await browser.close();
+  }
+});

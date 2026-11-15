@@ -3,13 +3,14 @@
  *
  * v1 surface (scenario-file-first):
  *   simman run <file.yaml> [--local] [--provider <p>] [--base-url <url>]
- *                          [--no-headless] [--json]
+ *                          [--no-headless] [--json] [--captures <dir>]
  *
  * Loads a scenario file (Slice 1), resolves a vision provider, runs it through the
  * engine, prints a report, and exits 0 (pass) / 1 (fail) / 2 (error). `simman plan`
  * and `simman doctor` are added in later slices.
  */
 import { parseArgs } from 'node:util';
+import { resolve as resolvePath } from 'node:path';
 import { loadScenario } from '../engine/scenario.mjs';
 import { runActualFlow } from '../engine/flow-runner.mjs';
 import { renderReport } from './report.mjs';
@@ -31,7 +32,8 @@ Options:
   --base-url <url>      override the scenario's baseUrl
   --no-headless         run with a visible browser
   --json                print the raw JSON report instead of the human summary
-  --fix                 (doctor) auto-install missing playwright browsers
+  --captures <dir>      (run) where capture steps save <screen-name>.png
+  --fix                (doctor) auto-install missing playwright browsers
   --out <dir>           (synthesize) directory for the saved scenario (default: scenarios/)
   --no-run              (synthesize) save the approved plan without executing it
   -h, --help            show this help
@@ -64,6 +66,7 @@ export async function run(argv, io = {}) {
         'base-url': { type: 'string' },
         headless: { type: 'boolean', default: true },
         json: { type: 'boolean', default: false },
+        captures: { type: 'string' },
         fix: { type: 'boolean', default: false },
         out: { type: 'string' },
         'no-run': { type: 'boolean', default: false },
@@ -129,6 +132,7 @@ export async function run(argv, io = {}) {
       grounding: providers.grounding,
       verify: providers.verify,
       stepTimeoutMs: 90000,
+      ...(values.captures ? { capturesDir: resolvePath(values.captures) } : {}),
     });
   } catch (e) {
     errLog(`error: run failed — ${e.message}`);
