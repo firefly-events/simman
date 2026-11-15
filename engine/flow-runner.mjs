@@ -321,10 +321,17 @@ export async function native(page, step, opts = {}) {
       // EXACT NAME FIRST. A pattern match clicks the first element whose name
       // CONTAINS the words: "Sign in" hit "Sign in with Google" above the real
       // Sign in button. The pattern stays as the fallback for a partial name.
-      await (await exactFirst(
-        page.getByRole(args.role, { name: args.name, exact: true }),
-        () => page.getByRole(args.role, { name: new RegExp(args.name, 'i') }),
-      )).click();
+      // NO SUCH ROLE: a control without the role (a <summary> that opens a
+      // <details> section, a styled <div>) is tapped by its exact visible text.
+      {
+        const exact = page.getByRole(args.role, { name: args.name, exact: true });
+        const partial = page.getByRole(args.role, { name: new RegExp(args.name, 'i') });
+        let target;
+        if (await countVisible(exact) > 0) target = visibleFirst(exact);
+        else if (typeof partial?.count !== 'function' || typeof page.getByText !== 'function' || await countVisible(partial) > 0) target = visibleFirst(partial);
+        else target = visibleFirst(page.getByText(args.name, { exact: true }));
+        await target.click();
+      }
       break;
     case 'tapText': {
       // Tests/overlays use `text`; legacy callers used `name`. Accept both so
