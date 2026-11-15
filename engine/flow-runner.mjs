@@ -261,6 +261,12 @@ export async function lateValue(value, opts = {}) {
   }
 }
 
+// The exact locator's first element when one exists, else the fallback's.
+async function exactFirst(exact, fallback) {
+  const count = typeof exact?.count === 'function' ? await exact.count().catch(() => 0) : 0;
+  return count > 0 ? exact.first() : fallback().first();
+}
+
 export async function native(page, step, opts = {}) {
   const base = opts.baseUrl || DEFAULTS.baseUrl;
   const args = step.args || {};
@@ -279,14 +285,23 @@ export async function native(page, step, opts = {}) {
       break;
     }
     case 'tapRole':
-      await page.getByRole(args.role, { name: new RegExp(args.name, 'i') }).first().click();
+      // EXACT NAME FIRST. A pattern match clicks the first element whose name
+      // CONTAINS the words: "Sign in" hit "Sign in with Google" above the real
+      // Sign in button. The pattern stays as the fallback for a partial name.
+      await (await exactFirst(
+        page.getByRole(args.role, { name: args.name, exact: true }),
+        () => page.getByRole(args.role, { name: new RegExp(args.name, 'i') }),
+      )).click();
       break;
     case 'tapText': {
       // Tests/overlays use `text`; legacy callers used `name`. Accept both so
       // we never build /undefined/i and click an unintended element.
       const name = args.name ?? args.text;
       if (name == null) throw new Error('tapText requires args.text or args.name');
-      await page.getByText(new RegExp(name, 'i')).first().click();
+      await (await exactFirst(
+        page.getByText(name, { exact: true }),
+        () => page.getByText(new RegExp(name, 'i')),
+      )).click();
       break;
     }
     case 'wait':
