@@ -359,11 +359,32 @@ function resolveTruth(signal) {
   return signal;
 }
 
-async function evalTruthSignal(page, signal, networkState) {
+const TRUTH_WAIT_MS = Number(process.env.SIMMAN_TRUTH_WAIT_MS ?? 3000);
+
+export async function evalTruthSignal(page, signal, networkState) {
   const truth = resolveTruth(signal);
 
   if (truth.kind === 'network') {
     return networkState.requests.some((r) => matchesNetworkTruth(truth, r));
+  }
+
+  if (truth.kind === 'element_enabled' && !truth.selector && typeof page.getByRole === 'function') {
+    // ROLE LOOKUP THROUGH PLAYWRIGHT. A DOM query for [role="link"] misses a
+    // plain <a href> (its role is implicit), and the same for <input>, <h1>,
+    // <nav>: every such truth read false on a page that showed the element.
+    // getByRole knows implicit roles. Exact name first, then a partial match;
+    // a short wait covers an element that renders just after the act.
+    const role = truth.role || 'button';
+    const escaped = truth.name ? truth.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : null;
+    const exact = truth.name ? page.getByRole(role, { name: truth.name, exact: true }) : page.getByRole(role);
+    const partial = escaped ? page.getByRole(role, { name: new RegExp(escaped, 'i') }) : exact;
+    for (const locator of [exact, partial]) {
+      const first = locator.first();
+      await first.waitFor({ state: 'visible', timeout: TRUTH_WAIT_MS }).catch(() => {});
+      if ((await locator.count().catch(() => 0)) === 0) continue;
+      if (await first.isVisible().catch(() => false) && await first.isEnabled().catch(() => false)) return true;
+    }
+    return false;
   }
 
   if (truth.kind === 'element_enabled') {
