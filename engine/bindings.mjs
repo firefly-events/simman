@@ -24,7 +24,8 @@
  *     { how: "vision", target: string, setup?: Primitive[], truth?: TruthSignal }
  *
  *   Primitive: { act: Act, args: object }
- *   Act: "goto" | "fill" | "tapRole" | "tapText" | "wait"
+ *   Act: "goto" | "fill" | "tapRole" | "tapText" | "wait" | "capture"
+ *     (capture args: { name, width?, height? } — a full-page PNG into opts.capturesDir)
  *   TruthSignal (object form — preferred):
  *     { kind: "network",         match: string, method?: string }
  *     { kind: "element_enabled", selector?: string, role?: string, name?: string }
@@ -42,7 +43,7 @@ export const KNOWN_TRUTH_SIGNALS = new Set(['cta_enabled', 'posted']);
 
 export const KNOWN_TRUTH_KINDS = new Set(['network', 'element_enabled']);
 
-export const KNOWN_ACT_VALUES = new Set(['goto', 'fill', 'tapRole', 'tapText', 'wait']);
+export const KNOWN_ACT_VALUES = new Set(['goto', 'fill', 'tapRole', 'tapText', 'wait', 'capture']);
 
 const VALID_HOW = new Set(['native', 'vision']);
 

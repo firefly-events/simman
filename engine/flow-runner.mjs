@@ -33,6 +33,9 @@
  *   BASE_URL     — app base URL for goto steps using relative paths (default: http://localhost:3100)
  */
 
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
 import { askVision, resolveProviderConfig } from './providers.mjs';
 
 // ─── Default config (env-driven; overridable per-call via opts) ──────────────
@@ -262,6 +265,23 @@ export async function native(page, step, opts = {}) {
     case 'wait':
       await page.waitForTimeout(args.ms || 300);
       break;
+    case 'capture': {
+      // A full-page PNG of the current screen, named by the scenario, for a
+      // caller that compares it with a design (hive-ultra wireframe call-outs).
+      if (!opts.capturesDir) throw new Error('capture needs a captures directory (--captures <dir>)');
+      if (!/^[a-z0-9][a-z0-9-]{0,63}$/.test(String(args.name ?? ''))) {
+        throw new Error(`capture needs a screen name; got ${JSON.stringify(args.name)}`);
+      }
+      if (args.width !== undefined || args.height !== undefined) {
+        const current = page.viewportSize?.() || opts.viewport || DEFAULTS.viewport;
+        await page.setViewportSize({ width: args.width ?? current.width, height: args.height ?? current.height });
+      }
+      await settle(page);
+      await mkdir(opts.capturesDir, { recursive: true });
+      const file = join(opts.capturesDir, `${args.name}.png`);
+      await writeFile(file, await page.screenshot({ fullPage: true }));
+      return { capture: file };
+    }
     default:
       throw new Error(`unknown native act: ${step.act}`);
   }
@@ -400,7 +420,8 @@ export async function runFlow(page, scenario, binding, opts = {}) {
           rec.vision = await visionTap(page, b.target, opts);
           rec.acted = rec.vision.found;
         } else {
-          await native(page, b, opts);
+          const out = await native(page, b, opts);
+          if (out?.capture) rec.capture = out.capture;
           rec.acted = true;
         }
       } catch (e) {
@@ -408,12 +429,17 @@ export async function runFlow(page, scenario, binding, opts = {}) {
         rec.actError = String(e.message || e).split('\n')[0];
       }
 
-      // VERIFY
-      await page.waitForTimeout(500);
-      try {
-        rec.verify = await verify(page, step.expected, opts);
-      } catch (e) {
-        rec.verify = { pass: false, why: 'verify-error: ' + String(e.message || e).slice(0, 80) };
+      // VERIFY — a capture step is judged by its file, never by a vision verify
+      // of its `expected` text, which describes the capture, not the page.
+      if (b.act === 'capture') {
+        rec.verify = { pass: !!rec.capture, why: rec.capture ? 'capture written' : 'no capture written' };
+      } else {
+        await page.waitForTimeout(500);
+        try {
+          rec.verify = await verify(page, step.expected, opts);
+        } catch (e) {
+          rec.verify = { pass: false, why: 'verify-error: ' + String(e.message || e).slice(0, 80) };
+        }
       }
 
       rec.posted = networkState.posted;
@@ -461,6 +487,7 @@ export async function runFlow(page, scenario, binding, opts = {}) {
       pass: r.pass,
       passBasis: r.passBasis,
       why: r.verify?.why,
+      ...(r.capture ? { capture: r.capture } : {}),
       action: r.action,
       expected: r.expected,
     }),
@@ -493,7 +520,7 @@ export async function runActualFlow(options = {}) {
     mlxEndpoint, mlxModel,
     snapDom = false, retryLimit, stepTimeoutMs,
     baseUrl, coords, viewport, headless = true,
-    page: providedPage, onStep,
+    page: providedPage, onStep, capturesDir,
     // Provider selection (optional). `provider` sets a global default; `grounding`
     // and `verify` are per-role override blocks ({ provider, model, endpoint, apiKey }).
     // Omitted → local MLX defaults, preserving the mlxEndpoint/mlxModel convenience.
@@ -517,6 +544,7 @@ export async function runActualFlow(options = {}) {
     retryLimit: retryLimit ?? 3,
     timeoutMs: stepTimeoutMs ?? DEFAULTS.timeoutMs,
     onStep,
+    capturesDir,
     provider, grounding, verify,
   };
 

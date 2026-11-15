@@ -30,12 +30,17 @@
  *   goto:    "<abs url>" | "/rel/path"              → native goto
  *   wait:    <ms:int>                               → native wait
  *   vision:  "<plain-language element description>" → vision grounding+click
+ *   capture: "<screen-name>" (+ width, height)      → native full-page PNG at
+ *            <--captures dir>/<screen-name>.png; width/height (200..4000) set
+ *            the viewport first. The step passes when the file is written.
  */
 import { readFileSync } from 'node:fs';
 import yaml from 'js-yaml';
 import { validateBindings, validateTruth } from './bindings.mjs';
 
-const ACT_KEYS = ['fill', 'tapRole', 'tapText', 'goto', 'wait', 'vision'];
+const ACT_KEYS = ['fill', 'tapRole', 'tapText', 'goto', 'wait', 'vision', 'capture'];
+const CAPTURE_NAME = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const viewportSide = (value) => Number.isInteger(value) && value >= 200 && value <= 4000;
 
 function err(msg, source) {
   const e = new Error(`${source ? source + ': ' : ''}${msg}`);
@@ -78,6 +83,17 @@ function compileStep(step, i, source) {
     const ms = Number(v);
     if (!Number.isFinite(ms) || ms < 0) throw err(`${at}: wait needs a non-negative millisecond number`, source);
     ov = { how: 'native', act: 'wait', args: { ms } };
+  } else if (act === 'capture') {
+    if (typeof v !== 'string' || !CAPTURE_NAME.test(v)) {
+      throw err(`${at}: capture needs a screen name matching ${CAPTURE_NAME}`, source);
+    }
+    const args = { name: v };
+    for (const side of ['width', 'height']) {
+      if (step.do[side] === undefined) continue;
+      if (!viewportSide(step.do[side])) throw err(`${at}: capture ${side} must be an integer from 200 to 4000`, source);
+      args[side] = step.do[side];
+    }
+    ov = { how: 'native', act: 'capture', args };
   } else { // vision
     if (typeof v !== 'string' || !v.trim()) throw err(`${at}: vision needs a description string`, source);
     ov = { how: 'vision', target: v };
