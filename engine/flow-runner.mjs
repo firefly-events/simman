@@ -33,7 +33,7 @@
  *   BASE_URL     — app base URL for goto steps using relative paths (default: http://localhost:3100)
  */
 
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { askVision, resolveProviderConfig } from './providers.mjs';
@@ -234,6 +234,33 @@ export async function visionTap(page, label, opts = {}) {
 // Mechanical hands — deterministic Playwright primitives. Goto supports both
 // absolute URLs (args.url) and relative paths (args.path, prepended with BASE_URL).
 
+// A LATE VALUE: `{{waitFile:<absolute path>}}` as the whole fill value means
+// "wait until that file exists, then type its trimmed content". A caller that
+// learns a value only while the run is under way (an emailed sign-in code that
+// an earlier step requested) writes the file then. Any other string is typed
+// as given. The wait is bounded (opts.waitFileTimeoutMs, else
+// SIMMAN_WAITFILE_TIMEOUT_MS, else 60 s) and an empty file keeps waiting.
+const WAIT_FILE = /^\{\{waitFile:(\/[^{}]+)\}\}$/;
+
+export async function lateValue(value, opts = {}) {
+  const match = typeof value === 'string' ? WAIT_FILE.exec(value) : null;
+  if (!match) return value;
+  const file = match[1];
+  const limit = Number(opts.waitFileTimeoutMs ?? process.env.SIMMAN_WAITFILE_TIMEOUT_MS ?? 60000);
+  const pollMs = Number(opts.waitFilePollMs ?? 100);
+  const until = Date.now() + (Number.isFinite(limit) && limit > 0 ? limit : 60000);
+  for (;;) {
+    try {
+      const text = (await readFile(file, 'utf8')).trim();
+      if (text !== '') return text;
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+    if (Date.now() >= until) throw new Error('waitFile: no value arrived before the deadline');
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+}
+
 export async function native(page, step, opts = {}) {
   const base = opts.baseUrl || DEFAULTS.baseUrl;
   const args = step.args || {};
@@ -247,7 +274,7 @@ export async function native(page, step, opts = {}) {
     case 'fill': {
       // Overlay schema/tests accept `value`; runner historically read `text`.
       // Accept both so a valid overlay never silently fills ''.
-      const text = args.text ?? args.value ?? '';
+      const text = await lateValue(args.text ?? args.value ?? '', opts);
       await page.locator(args.selector).first().fill(text);
       break;
     }
