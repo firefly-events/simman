@@ -261,10 +261,43 @@ export async function lateValue(value, opts = {}) {
   }
 }
 
-// The exact locator's first element when one exists, else the fallback's.
+// VISIBLE FIRST. A responsive page often renders one control twice (a phone
+// list and a hidden desktop table); the first DOM match can be the hidden one,
+// and clicking it times out. Prefer the first visible match when the locator
+// supports filtering, else the plain first match.
+function visibleFirst(locator) {
+  if (typeof locator?.filter === 'function') {
+    try { return locator.filter({ visible: true }).first(); } catch { /* older Playwright */ }
+  }
+  return locator.first();
+}
+
+async function countVisible(locator) {
+  if (typeof locator?.count !== 'function') return 0;
+  if (typeof locator.filter === 'function') {
+    try { return await locator.filter({ visible: true }).count(); } catch { /* fall through */ }
+  }
+  return locator.count().catch(() => 0);
+}
+
+// The exact locator's first visible element when one exists, else the fallback's.
 async function exactFirst(exact, fallback) {
-  const count = typeof exact?.count === 'function' ? await exact.count().catch(() => 0) : 0;
-  return count > 0 ? exact.first() : fallback().first();
+  const count = await countVisible(exact).catch(() => 0);
+  return count > 0 ? visibleFirst(exact) : visibleFirst(fallback());
+}
+
+// FILL A <select> BY ITS OPTION. Playwright's fill refuses a select; a check
+// that "fills" Month with "March" means choose that option. Label first, then value.
+async function fillOrSelect(target, text) {
+  const isSelect = typeof target.evaluate === 'function'
+    ? await target.evaluate((el) => el.tagName === 'SELECT').catch(() => false)
+    : false;
+  if (!isSelect) return target.fill(text);
+  try {
+    await target.selectOption({ label: text });
+  } catch {
+    await target.selectOption(text);
+  }
 }
 
 export async function native(page, step, opts = {}) {
@@ -281,7 +314,7 @@ export async function native(page, step, opts = {}) {
       // Overlay schema/tests accept `value`; runner historically read `text`.
       // Accept both so a valid overlay never silently fills ''.
       const text = await lateValue(args.text ?? args.value ?? '', opts);
-      await page.locator(args.selector).first().fill(text);
+      await fillOrSelect(visibleFirst(page.locator(args.selector)), text);
       break;
     }
     case 'tapRole':
