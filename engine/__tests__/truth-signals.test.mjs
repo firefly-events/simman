@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { validateTruth, validateBindings } from '../bindings.mjs';
-import { matchesNetworkTruth, LEGACY_TRUTH_ALIASES } from '../flow-runner.mjs';
+import { evalTruthSignal, matchesNetworkTruth, LEGACY_TRUTH_ALIASES } from '../flow-runner.mjs';
 import { parseScenario } from '../scenario.mjs';
 
 // ── validateTruth ─────────────────────────────────────────────────────────────
@@ -48,6 +48,18 @@ test('truth: object form validates inside a full overlay', () => {
       { how: 'vision', target: 'the save button', truth: { kind: 'network', match: '/api/save', method: 'POST' } },
     ],
   }, 'x');
+});
+
+test('element_enabled does not let an enabled partial match override a disabled exact role match', async () => {
+  const makeLocator = (kind) => ({
+    count: async () => kind === 'exact' ? 1 : 2,
+    first: () => ({ waitFor: async () => {} }),
+    evaluateAll: async () => kind !== 'exact',
+  });
+  const page = {
+    getByRole: (_role, options = {}) => makeLocator(options.exact ? 'exact' : 'partial'),
+  };
+  assert.equal(await evalTruthSignal(page, { kind: 'element_enabled', role: 'button', name: 'Save' }, { requests: [] }), false);
 });
 
 // ── matchesNetworkTruth (pure request matcher) ────────────────────────────────

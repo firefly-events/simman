@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -100,4 +100,37 @@ test('a capture step with no captures directory fails, and the flow does not pas
   assert.equal(report.flowPassed, false);
   assert.match(report.steps[0].actError, /captures directory/);
   assert.equal(report.steps[0].capture, undefined);
+});
+
+test('a capture step does not pass when the output path cannot be written', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'simman-capture-blocked-'));
+  try {
+    const notDirectory = join(dir, 'file');
+    writeFileSync(notDirectory, 'occupied');
+    const { scenario, overlay } = parseScenario(scenarioWith({ capture: 'home' }));
+    const report = await runFlow(fakePage([]), scenario, overlay, { capturesDir: join(notDirectory, 'shots') });
+    assert.equal(report.flowPassed, false);
+    assert.equal(report.steps[0].capture, undefined);
+    assert.equal(report.steps[0].pass, false);
+    assert.match(report.steps[0].actError, /ENOTDIR|not a directory/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a truth signal cannot report a native capture pass when no file was written', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'simman-capture-truth-'));
+  try {
+    const notDirectory = join(dir, 'file');
+    writeFileSync(notDirectory, 'occupied');
+    const { scenario, overlay } = parseScenario(scenarioWith({ capture: 'home' }));
+    overlay.steps[0].truth = { kind: 'network', match: '/present' };
+    const page = fakePage([]);
+    page.on = (_event, callback) => callback({ url: () => '/present', method: () => 'GET' });
+    const report = await runFlow(page, scenario, overlay, { capturesDir: join(notDirectory, 'shots') });
+    assert.equal(report.steps[0].truth, true);
+    assert.equal(report.steps[0].pass, false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

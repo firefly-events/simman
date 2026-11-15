@@ -59,7 +59,7 @@ deterministic primitives.
 | Field | Required | Description |
 |-------|:--------:|-------------|
 | `how` | yes | `"native"` |
-| `act` | yes | One of: `goto \| fill \| tapRole \| tapText \| wait` |
+| `act` | yes | One of: `goto \| fill \| tapRole \| tapText \| wait \| capture` |
 | `args` | yes | Act-specific argument map (see below) |
 | `setup` | no | Ordered list of native primitives run *before* the action |
 | `truth` | no | Authoritative truth-signal for step verification (see below) |
@@ -70,9 +70,14 @@ deterministic primitives.
 |-------|-------------|---------|
 | `goto` | `{ "url": string }` | Navigate to URL |
 | `fill` | `{ "selector": string, "value": string }` | Fill input matching CSS selector |
-| `tapRole` | `{ "role": string, "name"?: string }` | Tap element by ARIA role (+ optional accessible name) |
+| `tapRole` | `{ "role"?: string, "name"?: string }` | Tap element by ARIA role (defaults to `button`), optionally narrowed by accessible name |
 | `tapText` | `{ "text": string }` | Tap element whose visible text matches |
 | `wait` | `{ "ms"?: number, "selector"?: string }` | Wait for duration (ms) or for selector to appear |
+| `capture` | `{ "name": string, "width"?: number, "height"?: number }` | Save a full-page PNG under `--captures`; the step passes only when the file is written |
+
+For native `fill`, a value written as `{{waitFile:/absolute/path}}` waits for
+that file to contain non-empty text, trims it, and fills the field. The wait is
+bounded by `SIMMAN_WAITFILE_TIMEOUT_MS` (default 60 seconds).
 
 ### `how: "vision"`
 

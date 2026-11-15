@@ -25,7 +25,8 @@
  *
  * `do` is a single-act map. Exactly one of these keys selects the act:
  *   fill:    "<css>"  (+ value: "<text>")          → native fill
- *   tapRole: "<name>" | { role, name }             → native tapRole (role default button)
+ *   tapRole: "<name>" | { role?, name? }           → native tapRole (role default button)
+ *                                                  (omit name to select any role match)
  *   tapText: "<visible text>"                       → native tapText
  *   goto:    "<abs url>" | "/rel/path"              → native goto
  *   wait:    <ms:int>                               → native wait
@@ -71,8 +72,12 @@ function compileStep(step, i, source) {
     let role = 'button'; let name;
     if (typeof v === 'string') { name = v; }
     else if (v && typeof v === 'object') { role = v.role || 'button'; name = v.name; }
-    if (typeof name !== 'string' || !name.trim()) throw err(`${at}: tapRole needs a "name" (string, or { role, name })`, source);
-    ov = { how: 'native', act: 'tapRole', args: { role, name } };
+    else throw err(`${at}: tapRole needs a name string or { role?, name? }`, source);
+    if (typeof role !== 'string' || !role.trim()) throw err(`${at}: tapRole role must be a non-empty string`, source);
+    if (name !== undefined && (typeof name !== 'string' || !name.trim())) throw err(`${at}: tapRole name must be a non-empty string when present`, source);
+    const args = { role };
+    if (name !== undefined) args.name = name;
+    ov = { how: 'native', act: 'tapRole', args };
   } else if (act === 'tapText') {
     if (typeof v !== 'string' || !v.trim()) throw err(`${at}: tapText needs a visible-text string`, source);
     ov = { how: 'native', act: 'tapText', args: { text: v } };

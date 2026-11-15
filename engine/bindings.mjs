@@ -266,6 +266,15 @@ function validateNativeStep(step, scenarioId, index, loc) {
       index,
     );
   }
+
+  if (step.act === 'tapRole') {
+    if (step.args.role !== undefined && (typeof step.args.role !== 'string' || !step.args.role.trim())) {
+      throw makeError('VALIDATION_ERROR', `${loc}: tapRole "role" must be a non-empty string when present`, scenarioId, index);
+    }
+    if (step.args.name !== undefined && (typeof step.args.name !== 'string' || !step.args.name.trim())) {
+      throw makeError('VALIDATION_ERROR', `${loc}: tapRole "name" must be a non-empty string when present`, scenarioId, index);
+    }
+  }
 }
 
 function validateVisionStep(step, scenarioId, index, loc) {

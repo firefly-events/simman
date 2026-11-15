@@ -43,3 +43,32 @@ test('tapRole falls back to the exact text when no element has that role', async
     await browser.close();
   }
 });
+
+test('tapRole handles punctuation and waits for a delayed accessible-name-only control', async (t) => {
+  let browser;
+  try { browser = await chromium.launch(); } catch (error) { t.skip(`no browser: ${error.message}`); return; }
+  try {
+    const page = await browser.newPage();
+    await page.setContent(`<button aria-label="Confirm [" onclick="window.hit='punctuation'"></button>
+      <script>setTimeout(() => { const b=document.createElement('button'); b.setAttribute('aria-label','Late access'); b.onclick=()=>window.hit='late'; document.body.append(b); }, 150)</script>`);
+    await native(page, { act: 'tapRole', args: { role: 'button', name: 'Confirm [' } });
+    assert.equal(await page.evaluate(() => window.hit), 'punctuation');
+    await native(page, { act: 'tapRole', args: { role: 'button', name: 'Late access' } });
+    assert.equal(await page.evaluate(() => window.hit), 'late');
+  } finally {
+    await browser.close();
+  }
+});
+
+test('select label takes precedence over a colliding option value', async (t) => {
+  let browser;
+  try { browser = await chromium.launch(); } catch (error) { t.skip(`no browser: ${error.message}`); return; }
+  try {
+    const page = await browser.newPage();
+    await page.setContent('<select id="choice"><option value="March">Other</option><option value="same">March</option></select>');
+    await native(page, { act: 'fill', args: { selector: '#choice', value: 'March' } });
+    assert.equal(await page.$eval('#choice', (el) => el.selectedIndex), 1);
+  } finally {
+    await browser.close();
+  }
+});

@@ -9,11 +9,11 @@ function fakePage(sink) {
     fill: async (v) => { sink.push({ ...record, fill: v }); },
     click: async () => { sink.push({ ...record, click: true }); },
   });
-  const chain = (record) => ({ first: () => leaf(record) });
+  const chain = (record) => ({ first: () => ({ ...leaf(record), waitFor: async () => {} }), ...leaf(record), count: async () => 1 });
   return {
     locator: (selector) => chain({ op: 'locator', selector }),
-    getByText: (re) => chain({ op: 'getByText', re: re.source }),
-    getByRole: (role, o) => chain({ op: 'getByRole', role, name: o.name.source }),
+    getByText: (re) => chain({ op: 'getByText', re: re.source ?? re }),
+    getByRole: (role, o = {}) => chain({ op: 'getByRole', role, name: o.name?.source ?? o.name, exact: o.exact }),
     goto: async () => {},
     waitForLoadState: async () => {},
     waitForTimeout: async () => {},
@@ -69,4 +69,11 @@ test('tapRole reads args.name', async () => {
   await native(fakePage(sink), { act: 'tapRole', args: { role: 'button', name: 'Go' } });
   assert.equal(sink[0].name, 'Go');
   assert.equal(sink[0].role, 'button');
+});
+
+test('tapRole accepts a role without a name', async () => {
+  const sink = [];
+  await native(fakePage(sink), { act: 'tapRole', args: { role: 'checkbox' } });
+  assert.equal(sink[0].role, 'checkbox');
+  assert.equal(sink[0].click, true);
 });

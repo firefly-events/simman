@@ -288,16 +288,34 @@ async function exactFirst(exact, fallback) {
 
 // FILL A <select> BY ITS OPTION. Playwright's fill refuses a select; a check
 // that "fills" Month with "March" means choose that option. Label first, then value.
-async function fillOrSelect(target, text) {
+async function fillOrSelect(page, target, text) {
   const isSelect = typeof target.evaluate === 'function'
     ? await target.evaluate((el) => el.tagName === 'SELECT').catch(() => false)
     : false;
   if (!isSelect) return target.fill(text);
-  try {
-    await target.selectOption({ label: text });
-  } catch {
-    await target.selectOption(text);
+  if (typeof page.waitForFunction === 'function') {
+    const element = await target.elementHandle();
+    try {
+      const match = await page.waitForFunction(({ select, wanted }) => {
+        const normalized = wanted.trim().replace(/\s+/g, ' ');
+        const options = [...select.options].filter((option) => !option.disabled && !option.parentElement?.disabled);
+        if (options.some((option) => option.label.trim().replace(/\s+/g, ' ') === normalized)) return 'label';
+        if (options.some((option) => option.value === wanted)) return 'value';
+        return false;
+      }, { select: element, wanted: text });
+      try {
+        const kind = await match.jsonValue();
+        return kind === 'label' ? target.selectOption({ label: text }) : target.selectOption({ value: text });
+      } finally {
+        await match.dispose();
+      }
+    } finally {
+      await element.dispose();
+    }
   }
+
+  try { await target.selectOption({ label: text }); }
+  catch { await target.selectOption({ value: text }); }
 }
 
 export async function native(page, step, opts = {}) {
@@ -314,7 +332,7 @@ export async function native(page, step, opts = {}) {
       // Overlay schema/tests accept `value`; runner historically read `text`.
       // Accept both so a valid overlay never silently fills ''.
       const text = await lateValue(args.text ?? args.value ?? '', opts);
-      await fillOrSelect(visibleFirst(page.locator(args.selector)), text);
+      await fillOrSelect(page, visibleFirst(page.locator(args.selector)), text);
       break;
     }
     case 'tapRole':
@@ -324,13 +342,37 @@ export async function native(page, step, opts = {}) {
       // NO SUCH ROLE: a control without the role (a <summary> that opens a
       // <details> section, a styled <div>) is tapped by its exact visible text.
       {
-        const exact = page.getByRole(args.role, { name: args.name, exact: true });
-        const partial = page.getByRole(args.role, { name: new RegExp(args.name, 'i') });
-        let target;
-        if (await countVisible(exact) > 0) target = visibleFirst(exact);
-        else if (typeof partial?.count !== 'function' || typeof page.getByText !== 'function' || await countVisible(partial) > 0) target = visibleFirst(partial);
-        else target = visibleFirst(page.getByText(args.name, { exact: true }));
-        await target.click();
+        const role = args.role || 'button';
+        const exact = args.name == null
+          ? page.getByRole(role)
+          : page.getByRole(role, { name: args.name, exact: true });
+        let target = exact;
+        if (args.name != null) {
+          // Preserve exact-role priority, but wait on a union when no matching
+          // role or text is present yet so late accessible-name-only controls
+          // still get Playwright's configured action wait.
+          if (await countVisible(exact) === 0) {
+            let pattern;
+            try { pattern = new RegExp(String(args.name), 'i'); }
+            catch { pattern = new RegExp(String(args.name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'); }
+            const partial = page.getByRole(role, { name: pattern });
+            const text = typeof page.getByText === 'function' ? page.getByText(args.name, { exact: true }) : null;
+            if (await countVisible(partial) > 0) target = partial;
+            else if (text && await countVisible(text) > 0) target = text;
+            else if (typeof exact.or === 'function' && partial && typeof partial.or === 'function') {
+              const candidates = exact.or(partial);
+              const waiting = text && typeof candidates.or === 'function' ? candidates.or(text) : candidates;
+              const visibleWaiting = typeof waiting.filter === 'function' ? waiting.filter({ visible: true }) : waiting;
+              await visibleWaiting.first().waitFor({ state: 'visible' });
+              if (await countVisible(exact) > 0) target = exact;
+              else if (await countVisible(partial) > 0) target = partial;
+              else if (text && await countVisible(text) > 0) target = text;
+              else throw new Error(`tapRole could not find a visible ${role} named ${JSON.stringify(args.name)}`);
+            } else if (text) target = text;
+            else target = partial;
+          }
+        }
+        await visibleFirst(target).click();
       }
       break;
     case 'tapText': {
@@ -412,17 +454,35 @@ export async function evalTruthSignal(page, signal, networkState) {
     // ROLE LOOKUP THROUGH PLAYWRIGHT. A DOM query for [role="link"] misses a
     // plain <a href> (its role is implicit), and the same for <input>, <h1>,
     // <nav>: every such truth read false on a page that showed the element.
-    // getByRole knows implicit roles. Exact name first, then a partial match;
-    // a short wait covers an element that renders just after the act.
+    // getByRole knows implicit roles. Exact name first, then a partial match.
+    // Inspect every match so a hidden duplicate cannot mask a visible one.
+    // If neither match exists yet, wait once on their union and then recheck
+    // exact precedence within the same bounded budget.
     const role = truth.role || 'button';
     const escaped = truth.name ? truth.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : null;
     const exact = truth.name ? page.getByRole(role, { name: truth.name, exact: true }) : page.getByRole(role);
     const partial = escaped ? page.getByRole(role, { name: new RegExp(escaped, 'i') }) : exact;
-    for (const locator of [exact, partial]) {
-      const first = locator.first();
-      await first.waitFor({ state: 'visible', timeout: TRUTH_WAIT_MS }).catch(() => {});
-      if ((await locator.count().catch(() => 0)) === 0) continue;
-      if (await first.isVisible().catch(() => false) && await first.isEnabled().catch(() => false)) return true;
+    const enabledRole = page.getByRole(role, { disabled: false });
+    const waitLimit = Number.isFinite(TRUTH_WAIT_MS) ? Math.max(0, TRUTH_WAIT_MS) : 3000;
+    const hasMatch = async (locator) => (await countVisible(locator)) > 0;
+    const isEligible = async (locator) => {
+      const eligible = typeof locator.and === 'function' ? locator.and(enabledRole) : locator;
+      return eligible.evaluateAll((elements) => elements.some((el) => {
+      const style = getComputedStyle(el);
+      const rect = el.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' &&
+        Number.parseFloat(style.opacity) > 0.1 && rect.width > 0;
+      })).catch(() => false);
+    };
+
+    if (await hasMatch(exact)) return isEligible(exact);
+    if (partial !== exact && await hasMatch(partial)) return isEligible(partial);
+    if (waitLimit > 0 && typeof exact.or === 'function' && partial && typeof partial.or === 'function') {
+      const union = exact.or(partial);
+      const visibleUnion = typeof union.filter === 'function' ? union.filter({ visible: true }) : union;
+      await visibleUnion.first().waitFor({ state: 'visible', timeout: waitLimit }).catch(() => {});
+      if (await hasMatch(exact)) return isEligible(exact);
+      if (partial !== exact && await hasMatch(partial)) return isEligible(partial);
     }
     return false;
   }
@@ -534,7 +594,8 @@ export async function runFlow(page, scenario, binding, opts = {}) {
 
       // VERIFY — a capture step is judged by its file, never by a vision verify
       // of its `expected` text, which describes the capture, not the page.
-      if (b.act === 'capture') {
+      const isNativeCapture = b.how !== 'vision' && b.act === 'capture';
+      if (isNativeCapture) {
         rec.verify = { pass: !!rec.capture, why: rec.capture ? 'capture written' : 'no capture written' };
       } else {
         await page.waitForTimeout(500);
@@ -553,7 +614,9 @@ export async function runFlow(page, scenario, binding, opts = {}) {
         rec.truth = { signal: b.truth, pass: !!tp };
       }
 
-      const verdict = decidePass(rec, b);
+      const verdict = isNativeCapture && !rec.capture
+        ? { pass: false, basis: 'native-act' }
+        : decidePass(rec, b);
       rec.pass = verdict.pass;
       rec.passBasis = verdict.basis;
       report.push(rec);
