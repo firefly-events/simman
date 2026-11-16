@@ -87,7 +87,7 @@ function replayCommand(outPath, values, browser) {
     args.push('--device', device);
   }
   if (browser?.storageState) args.push('--storage-state', browser.storageState);
-  for (const pattern of browser?.block || []) args.push('--block', pattern);
+  for (const pattern of browser?.block || []) args.push(`--block=${pattern}`);
   return `simman ${args.map(shellQuote).join(' ')}`;
 }
 

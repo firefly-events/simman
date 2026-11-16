@@ -138,8 +138,10 @@ simple wildcard, and CLI patterns replace config patterns. Blocked requests are
 listed in the JSON report as `{ method, url, i, action }`, counted in the human
 summary, and cannot satisfy a network truth signal. Synthesis applies the same
 device, state, and block protections during exploration and approved execution.
-Playwright context routing does not cover service-worker-bypassed requests or
-WebSocket traffic.
+The redirect-hop guard applies to the page SimMan drives. Popup redirects and
+other separate targets are outside its scope; direct initial requests from
+those targets still use context routing. Service-worker traffic and WebSocket
+frames are outside this policy.
 
 Truth signals are user-defined — declare your own app's ground truth per step:
 

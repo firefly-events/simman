@@ -95,13 +95,14 @@ test('agent synthesize removes request policy from a caller-owned page on return
 test('synthesize replay command preserves effective block patterns and browser settings', async (t) => {
   const f = fixture(t), c = captureIO();
   browserHarness(t);
-  f.writeConfig({ device: '390x844@3,touch', storageState: f.storageState, block: ['config-only.test', "stripe.test/a'b"] });
+  f.writeConfig({ device: '390x844@3,touch', storageState: f.storageState, block: ['config-only.test', "stripe.test/a'b", '-foo'] });
   assert.equal(await run(args(f, ['--no-run']), c.io), 0, c.err.join('\n'));
   const replay = c.out.find((line) => line.includes('re-run any time'));
   assert.match(replay, /'--device' '390x844@3,touch'/);
   assert.ok(replay.includes(`'--storage-state' '${f.storageState}'`));
-  assert.match(replay, /'--block' 'config-only\.test'/);
-  assert.ok(replay.includes("'stripe.test/a'\\''b'"));
+  assert.match(replay, /'--block=config-only\.test'/);
+  assert.match(replay, /'--block=-foo'/);
+  assert.ok(replay.includes("'--block=stripe.test/a'\\''b'"));
 });
 
 test('synthesize malformed device returns validation error 2 before exploration', async (t) => {
