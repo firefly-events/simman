@@ -37,6 +37,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { askVision, resolveProviderConfig } from './providers.mjs';
+import { createBlockState, installBlockRouting, installRedirectGuard, removeBlockRouting, storageStateError, validateStorageState } from './browser-context.mjs';
 
 // ─── Default config (env-driven; overridable per-call via opts) ──────────────
 
@@ -88,6 +89,18 @@ function mapPx(ix, iy, W, H, { coords, viewport } = {}) {
     return [Math.round((ix / 1000) * vp.width), Math.round((iy / 1000) * vp.height)];
   }
   return [Math.round((ix / W) * vp.width), Math.round((iy / H) * vp.height)];
+}
+
+function currentViewport(page, opts = {}) {
+  // Direct visionTap callers historically use the engine's 1280x800 default;
+  // only context-owning flows pass a configured viewport whose live size may
+  // have changed after a capture step.
+  if (!opts.viewport) return DEFAULTS.viewport;
+  try {
+    const viewport = typeof page.viewportSize === 'function' ? page.viewportSize() : null;
+    if (viewport?.width && viewport?.height) return viewport;
+  } catch { /* use the configured fallback */ }
+  return opts.viewport || DEFAULTS.viewport;
 }
 
 // ─── DOM settle ──────────────────────────────────────────────────────────────
@@ -169,12 +182,12 @@ export async function verify(page, expected, opts = {}) {
 // DOM-snap OFF by default (SNAP_R=0) — pure manual coords; overlays/z-index apply.
 
 export async function visionTap(page, label, opts = {}) {
-  const vp = opts.viewport || DEFAULTS.viewport;
   const snapR = opts.snapR ?? DEFAULTS.snapR;
 
   let g = null;
   const maxAttempts = opts.retryLimit ?? 3;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const viewport = currentViewport(page, opts);
     await settle(page);
     let loc = await locate(page, label, false, opts);
     if (!loc.found) {
@@ -190,7 +203,7 @@ export async function visionTap(page, label, opts = {}) {
         const docY = Math.round(fracY * scrollH);
         await page.evaluate(
           (y) => { (document.scrollingElement || document.documentElement).scrollTo({ top: Math.max(0, y), behavior: 'instant' }); },
-          docY - Math.round(vp.height / 2),
+          docY - Math.round(viewport.height / 2),
         );
         await page.waitForTimeout(400);
         loc = await locate(page, label, false, opts);
@@ -201,7 +214,8 @@ export async function visionTap(page, label, opts = {}) {
 
   if (!g) return { found: false, clicked: null, topmost: null };
 
-  let [cx, cy] = mapPx(g.ix, g.iy, g.W, g.H, opts);
+  const viewport = currentViewport(page, opts);
+  let [cx, cy] = mapPx(g.ix, g.iy, g.W, g.H, { ...opts, viewport });
 
   if (snapR > 0) {
     const snap = await page.evaluate(([x, y, r]) => {
@@ -224,7 +238,8 @@ export async function visionTap(page, label, opts = {}) {
     [cx, cy],
   ).catch(() => null);
 
-  await page.mouse.click(cx, cy);
+  if (opts.hasTouch) await page.touchscreen.tap(cx, cy);
+  else await page.mouse.click(cx, cy);
   await page.waitForTimeout(1500);
   return { ...g, clicked: [cx, cy], topmost };
 }
@@ -323,6 +338,7 @@ async function fillOrSelect(page, target, text) {
 export async function native(page, step, opts = {}) {
   const base = opts.baseUrl || DEFAULTS.baseUrl;
   const args = step.args || {};
+  const activate = (locator) => opts.hasTouch && typeof locator.tap === 'function' ? locator.tap() : locator.click();
   switch (step.act) {
     case 'goto': {
       const url = args.url || (base + (args.path || '/'));
@@ -374,7 +390,7 @@ export async function native(page, step, opts = {}) {
             else target = partial;
           }
         }
-        await visibleFirst(target).click();
+        await activate(visibleFirst(target));
       }
       break;
     case 'tapText': {
@@ -382,10 +398,10 @@ export async function native(page, step, opts = {}) {
       // we never build /undefined/i and click an unintended element.
       const name = args.name ?? args.text;
       if (name == null) throw new Error('tapText requires args.text or args.name');
-      await (await exactFirst(
+      await activate(await exactFirst(
         page.getByText(name, { exact: true }),
         () => page.getByText(new RegExp(name, 'i')),
-      )).click();
+      ));
       break;
     }
     case 'wait':
@@ -449,7 +465,7 @@ export async function evalTruthSignal(page, signal, networkState) {
   const truth = resolveTruth(signal);
 
   if (truth.kind === 'network') {
-    return networkState.requests.some((r) => matchesNetworkTruth(truth, r));
+    return networkState.requests.some((r) => !networkState.blockedRequests?.has(r.request) && matchesNetworkTruth(truth, r));
   }
 
   if (truth.kind === 'element_enabled' && !truth.selector && typeof page.getByRole === 'function') {
@@ -550,19 +566,18 @@ export function decidePass(rec, b = {}) {
 export async function runFlow(page, scenario, binding, opts = {}) {
   // Record requests for network truth-signals. Only url+method are kept, capped
   // so a chatty SPA can't grow the array unbounded during a long flow.
-  const networkState = { posted: false, requests: [] };
+  const blockState = opts.blockState;
+  const networkState = { posted: false, requests: [], postRequests: [], blockedRequests: blockState?.blockedRequests };
   const MAX_RECORDED = 1000;
 
   // Named handler so we can detach it — callers may reuse an authenticated
   // page/context across runs; an anonymous listener would accumulate.
   const onRequest = (req) => {
+    if (req.url().includes('/api/social/post') && req.method() === 'POST') networkState.postRequests.push({ url: req.url(), method: req.method(), request: req });
     if (networkState.requests.length < MAX_RECORDED) {
-      networkState.requests.push({ url: req.url(), method: req.method() });
+      networkState.requests.push({ url: req.url(), method: req.method(), request: req });
     }
     // Legacy report field (kept for back-compat with the "posted" alias).
-    if (req.url().includes('/api/social/post') && req.method() === 'POST') {
-      networkState.posted = true;
-    }
   };
   page.on('request', onRequest);
 
@@ -573,6 +588,7 @@ export async function runFlow(page, scenario, binding, opts = {}) {
       const step = scenario.steps[i];
       const b = (binding.steps && binding.steps[i]) || {};
       const rec = { i, action: step.action, expected: step.expected, how: b.how };
+      if (blockState) blockState.active = { i, action: step.action };
 
       // Setup primitives (pre-action, native only)
       for (const s of (b.setup || [])) {
@@ -608,12 +624,16 @@ export async function runFlow(page, scenario, binding, opts = {}) {
         }
       }
 
-      rec.posted = networkState.posted;
+      rec.posted = hasAllowedPost(networkState, blockState);
 
       // Hybrid V&V: truth-signal is authoritative when declared
       if (b.truth) {
         const tp = await evalTruthSignal(page, b.truth, networkState).catch(() => false);
         rec.truth = { signal: b.truth, pass: !!tp };
+        const resolved = resolveTruth(b.truth);
+        if (!tp && resolved.kind === 'network' && networkState.requests.some((r) => networkState.blockedRequests?.has(r.request) && matchesNetworkTruth(resolved, r))) {
+          rec.why = 'blocked';
+        }
       }
 
       const verdict = isNativeCapture && !rec.capture
@@ -641,7 +661,8 @@ export async function runFlow(page, scenario, binding, opts = {}) {
     snap: opts.snapR ?? DEFAULTS.snapR,
     flowPassed: passed === total,
     stepsPassed: `${passed}/${total}`,
-    posted: networkState.posted,
+    posted: hasAllowedPost(networkState, blockState),
+    ...(blockState?.blocked?.length ? { blocked: blockState.blocked } : {}),
     steps: report.map((r) => r.fatal ? r : {
       i: r.i,
       how: r.how,
@@ -654,12 +675,17 @@ export async function runFlow(page, scenario, binding, opts = {}) {
       truth: r.truth?.pass,
       pass: r.pass,
       passBasis: r.passBasis,
-      why: r.verify?.why,
+      why: r.why || r.verify?.why,
       ...(r.capture ? { capture: r.capture } : {}),
       action: r.action,
       expected: r.expected,
     }),
   };
+}
+
+function hasAllowedPost(networkState, blockState) {
+  return networkState.postRequests.some((r) =>
+    !networkState.blockedRequests?.has(r.request) && !blockState?.blockedRequestKeys?.has(`${r.method} ${r.url}`));
 }
 
 // ─── High-level actual-mode executor ──────────────────────────────────────────
@@ -689,6 +715,7 @@ export async function runActualFlow(options = {}) {
     snapDom = false, retryLimit, stepTimeoutMs,
     baseUrl, coords, viewport, headless = true,
     page: providedPage, onStep, capturesDir,
+    deviceScaleFactor = 1, isMobile = false, hasTouch = false, storageState, block = [],
     // Provider selection (optional). `provider` sets a global default; `grounding`
     // and `verify` are per-role override blocks ({ provider, model, endpoint, apiKey }).
     // Omitted → local MLX defaults, preserving the mlxEndpoint/mlxModel convenience.
@@ -702,35 +729,98 @@ export async function runActualFlow(options = {}) {
     throw new Error('runActualFlow: options.overlay (validated binding object) is required');
   }
 
+  const selectedStorageState = validateStorageState(storageState);
+
   const opts = {
     mlx: mlxEndpoint || DEFAULTS.mlx,
     model: mlxModel || DEFAULTS.model,
     coords: coords || DEFAULTS.coords,
     snapR: snapDom ? (DEFAULTS.snapR || 12) : 0,
     viewport: viewport || DEFAULTS.viewport,
+    deviceScaleFactor,
+    isMobile,
+    hasTouch,
     baseUrl: baseUrl || DEFAULTS.baseUrl,
     retryLimit: retryLimit ?? 3,
     timeoutMs: stepTimeoutMs ?? DEFAULTS.timeoutMs,
     onStep,
     capturesDir,
+    storageState: selectedStorageState,
+    block,
     provider, grounding, verify,
   };
 
   // Caller supplied a page → run directly; caller owns navigation + teardown.
   if (providedPage) {
-    return runFlow(providedPage, scenario, overlay, opts);
+    const blockState = createBlockState(block);
+    const context = typeof providedPage.context === 'function' ? providedPage.context() : null;
+    opts.blockState = blockState;
+    try {
+      if (context) {
+        await installBlockRouting(context, blockState);
+        await installRedirectGuard(context, providedPage, blockState);
+      }
+      return await runFlow(providedPage, scenario, overlay, opts);
+    }
+    finally { if (context) await removeBlockRouting(context, blockState); }
   }
 
   // Otherwise own the full Playwright lifecycle.
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless });
+  let context, blockState;
   try {
-    const context = await browser.newContext({ viewport: opts.viewport });
+    const contextOptions = {
+      viewport: opts.viewport,
+      deviceScaleFactor: opts.deviceScaleFactor,
+      isMobile: opts.isMobile,
+      hasTouch: opts.hasTouch,
+      ...(opts.storageState ? { storageState: opts.storageState } : {}),
+    };
+    try {
+      context = await browser.newContext(contextOptions);
+    } catch (error) {
+      if (opts.storageState) throw storageStateError(opts.storageState);
+      throw error;
+    }
+    blockState = createBlockState(block);
+    await installBlockRouting(context, blockState);
+    opts.blockState = blockState;
     const page = await context.newPage();
-    await page.goto(opts.baseUrl + '/', { waitUntil: 'domcontentloaded' });
-    await page.waitForLoadState('networkidle').catch(() => {});
+    await installRedirectGuard(context, page, blockState);
+    try {
+      await page.goto(opts.baseUrl + '/', { waitUntil: 'domcontentloaded' });
+      await page.waitForLoadState('networkidle').catch(() => {});
+    } catch (error) {
+      if (blockState.blocked.length) return blockedNavigationReport(scenario, overlay, opts, blockState);
+      throw error;
+    }
     return await runFlow(page, scenario, overlay, opts);
   } finally {
+    if (context && blockState) await removeBlockRouting(context, blockState);
     await browser.close();
   }
+}
+
+function blockedNavigationReport(scenario, binding, opts, blockState) {
+  const steps = (scenario.steps || []).map((step, i) => ({
+    i,
+    how: binding.steps?.[i]?.how,
+    acted: false,
+    pass: false,
+    passBasis: 'native-act',
+    why: 'blocked',
+    action: step.action,
+    expected: step.expected,
+  }));
+  return {
+    scenario: scenario.id,
+    model: (opts.grounding?.model || opts.model || DEFAULTS.model).split('/').pop(),
+    snap: opts.snapR ?? DEFAULTS.snapR,
+    flowPassed: false,
+    stepsPassed: `0/${steps.length}`,
+    posted: false,
+    blocked: blockState.blocked,
+    steps,
+  };
 }

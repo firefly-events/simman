@@ -12,6 +12,7 @@
  */
 import { validateBindings } from '../engine/bindings.mjs';
 import { askVision } from '../engine/providers.mjs';
+import { createBlockState, installBlockRouting, installRedirectGuard, removeBlockRouting, storageStateError, validateStorageState } from '../engine/browser-context.mjs';
 
 const SCHEMA_HINT = `Return ONLY a JSON object, no prose, no code fences:
 {
@@ -140,21 +141,52 @@ function parsePlan(raw) {
  */
 export async function synthesize({
   url, goal, page, headless = true, providerCfg = {}, withScreenshot = true, retries = 1,
+  viewport = { width: 1280, height: 800 }, deviceScaleFactor = 1, isMobile = false, hasTouch = false,
+  storageState, block = [],
 }) {
   if (!goal) throw new Error('synthesize: goal is required');
 
-  let browser;
-  let workPage = page;
-  if (!workPage) {
-    if (!url) throw new Error('synthesize: url is required when no page is given');
-    const { chromium } = await import('playwright');
-    browser = await chromium.launch({ headless });
-    workPage = await (await browser.newContext()).newPage();
-    await workPage.goto(url, { waitUntil: 'domcontentloaded' });
-    await workPage.waitForLoadState('networkidle').catch(() => {});
-  }
+  const selectedStorageState = validateStorageState(storageState);
 
+  let browser;
+  let context;
+  let workPage = page;
+  const blockState = createBlockState(block, { i: null, action: 'exploration' });
   try {
+    if (!workPage) {
+      if (!url) throw new Error('synthesize: url is required when no page is given');
+      const { chromium } = await import('playwright');
+      browser = await chromium.launch({ headless });
+      try {
+        context = await browser.newContext({
+          viewport, deviceScaleFactor, isMobile, hasTouch,
+          ...(selectedStorageState ? { storageState: selectedStorageState } : {}),
+        });
+      } catch (error) {
+        if (selectedStorageState) throw storageStateError(selectedStorageState);
+        throw error;
+      }
+      await installBlockRouting(context, blockState);
+      workPage = await context.newPage();
+      await installRedirectGuard(context, workPage, blockState);
+      try {
+        await workPage.goto(url, { waitUntil: 'domcontentloaded' });
+        await workPage.waitForLoadState('networkidle').catch(() => {});
+      } catch (error) {
+        if (blockState.blocked.length) {
+          const blockedError = new Error('navigation blocked by configured request policy');
+          blockedError.code = 'BLOCKED_NAVIGATION';
+          blockedError.blocked = [...blockState.blocked];
+          throw blockedError;
+        }
+        throw error;
+      }
+    } else if (typeof workPage.context === 'function') {
+      context = workPage.context();
+      await installBlockRouting(context, blockState);
+      await installRedirectGuard(context, workPage, blockState);
+    }
+
     const ctx = await capturePageContext(workPage);
     const elementsForPrompt = ctx.elements.map((e) => ({ ...e, suggestedSelector: suggestSelector(e) || undefined }));
     const basePrompt =
@@ -186,7 +218,7 @@ export async function synthesize({
           lastErr = `scenario has ${ns} step(s) but overlay has ${no}; they must pair 1:1`;
           continue;
         }
-        return { scenario: { url, ...plan.scenario }, overlay: plan.overlay, raw, context: ctx };
+        return { scenario: { url, ...plan.scenario }, overlay: plan.overlay, raw, context: ctx, blocked: blockState.blocked };
       } catch (e) {
         lastErr = e.message;
       }
@@ -195,6 +227,7 @@ export async function synthesize({
     err.lastRaw = lastRaw.slice(0, 1200);
     throw err;
   } finally {
+    if (context) await removeBlockRouting(context, blockState);
     if (browser) await browser.close();
   }
 }

@@ -69,6 +69,28 @@ export function planToAuthoredYaml(scenario, overlay, { baseUrl } = {}) {
   return yaml.dump(doc, { lineWidth: 100, noRefs: true });
 }
 
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
+}
+
+function replayCommand(outPath, values, browser) {
+  const args = ['run', outPath];
+  if (values.config) args.push('--config', values.config);
+  if (values.local) args.push('--local');
+  if (values.provider) args.push('--provider', values.provider);
+  if (values.coords) args.push('--coords', values.coords);
+  if (values.headless === false) args.push('--no-headless');
+  if (browser?.viewport) {
+    const { width, height } = browser.viewport;
+    const scale = browser.deviceScaleFactor ?? 1;
+    const device = `${width}x${height}${scale !== 1 ? `@${scale}` : ''}${browser.hasTouch ? ',touch' : ''}`;
+    args.push('--device', device);
+  }
+  if (browser?.storageState) args.push('--storage-state', browser.storageState);
+  for (const pattern of browser?.block || []) args.push(`--block=${pattern}`);
+  return `simman ${args.map(shellQuote).join(' ')}`;
+}
+
 /** Open the plan JSON in $EDITOR; return the edited { scenario, overlay } (validated). */
 function editInEditor(plan, { errLog }) {
   const dir = mkdtempSync(join(tmpdir(), 'simman-gate-'));
@@ -162,9 +184,23 @@ export async function synthesizeCommand({ url, goal, values }, io = {}) {
       url, goal,
       headless: values.headless,
       providerCfg: providers.synth,
+      ...providers.browser,
       retries: 2,
     });
   } catch (e) {
+    if (e.blocked?.length) {
+      const report = {
+        scenario: url,
+        flowPassed: false,
+        stepsPassed: '0/1',
+        posted: false,
+        blocked: e.blocked,
+        steps: [{ i: 0, action: 'exploration', expected: 'page loaded', acted: false, pass: false, why: 'blocked' }],
+      };
+      if (values.json) log(JSON.stringify(report, null, 2));
+      else log(renderReport(report));
+      return 1;
+    }
     errLog(`error: synthesis failed — ${e.message}`);
     if (e.lastRaw) errLog(`  last model output: ${e.lastRaw.slice(0, 300)}`);
     return 2;
@@ -204,9 +240,13 @@ export async function synthesizeCommand({ url, goal, values }, io = {}) {
     return 2;
   }
   log(`✔ saved ${outPath}`);
-  log(`  re-run any time (no LLM synthesis needed): simman run ${outPath}`);
+  log(`  re-run any time (no LLM synthesis needed): ${replayCommand(outPath, values, providers.browser)}`);
 
-  if (values['no-run']) return 0;
+  if (values['no-run']) {
+    if (values.json) log(JSON.stringify({ scenario: approved.scenario.id, blocked: plan.blocked || [] }, null, 2));
+    else if (plan.blocked?.length) log(`  exploration blocked: ${plan.blocked.length} request(s)`);
+    return 0;
+  }
 
   // ── RUN ── through the engine, exactly as `simman run` would.
   log('▶ running…');
@@ -220,8 +260,10 @@ export async function synthesizeCommand({ url, goal, values }, io = {}) {
       coords: providers.coords,
       grounding: providers.grounding,
       verify: providers.verify,
+      ...providers.browser,
       stepTimeoutMs: 90000,
     });
+    if (plan.blocked?.length) report.blocked = [...plan.blocked, ...(report.blocked || [])];
   } catch (e) {
     errLog(`error: run failed — ${e.message}`);
     return 2;

@@ -20,6 +20,7 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import yaml from 'js-yaml';
+import { parseDevice, validateStorageState } from '../engine/browser-context.mjs';
 
 const HOSTED_MODEL = 'gemini-2.5-flash';
 const LOCAL_ENDPOINT = 'http://127.0.0.1:8089/v1/chat/completions';
@@ -84,7 +85,33 @@ export function resolveProviders({ flags = {}, env = process.env, cwd = process.
   for (const r of ROLES) out[r] = build(r);
   out.coords = flags.coords || data.coords || providerCoords(out.grounding.provider);
   out.configPath = configPath;
+  out.browser = resolveBrowserOptions({ flags, data, env, cwd });
   return out;
+}
+
+/** Resolve browser emulation/auth/routing options after provider config is loaded. */
+export function resolveBrowserOptions({ flags = {}, data = {}, env = process.env } = {}) {
+  const deviceValue = flags.device !== undefined ? flags.device : data.device;
+  const device = deviceValue !== undefined
+    ? parseDevice(deviceValue)
+    : {
+      viewport: {
+        width: Number(env.VIEWPORT_W ?? 1280),
+        height: Number(env.VIEWPORT_H ?? 800),
+      },
+      deviceScaleFactor: 1,
+      isMobile: false,
+      hasTouch: false,
+    };
+  const selectedState = flags['storage-state'] !== undefined
+    ? flags['storage-state']
+    : data.storageState;
+  const selectedBlocks = flags.block !== undefined ? flags.block : data.block;
+  return {
+    ...device,
+    ...(selectedState !== undefined ? { storageState: validateStorageState(selectedState) } : {}),
+    block: selectedBlocks === undefined ? [] : (Array.isArray(selectedBlocks) ? selectedBlocks.map(String) : [String(selectedBlocks)]),
+  };
 }
 
 /**
