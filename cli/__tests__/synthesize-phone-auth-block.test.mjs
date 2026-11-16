@@ -82,6 +82,28 @@ test('synthesize routes before either navigation and includes exploration blocks
   assert.ok(report.blocked.every((r) => typeof r.action === 'string' && r.action.length > 0));
 });
 
+test('agent synthesize removes request policy from a caller-owned page on return', async (t) => {
+  const h = browserHarness(t);
+  const { runActualFlow } = await import('../../engine/flow-runner.mjs');
+  await runActualFlow({ scenario: { id: 'empty', steps: [] }, overlay: { scenario: 'empty', steps: [] } });
+  await synthesize({ page: h.page, goal: 'inspect the phone page', providerCfg: { provider: 'mlx' }, block: ['stripe.test'] });
+  await h.dispatch({ url: BLOCKED, method: 'POST' });
+  assert.deepEqual(h.aborted, []);
+  assert.ok(h.continued.some((r) => r.url === BLOCKED));
+});
+
+test('synthesize replay command preserves effective block patterns and browser settings', async (t) => {
+  const f = fixture(t), c = captureIO();
+  browserHarness(t);
+  f.writeConfig({ device: '390x844@3,touch', storageState: f.storageState, block: ['config-only.test', "stripe.test/a'b"] });
+  assert.equal(await run(args(f, ['--no-run']), c.io), 0, c.err.join('\n'));
+  const replay = c.out.find((line) => line.includes('re-run any time'));
+  assert.match(replay, /'--device' '390x844@3,touch'/);
+  assert.ok(replay.includes(`'--storage-state' '${f.storageState}'`));
+  assert.match(replay, /'--block' 'config-only\.test'/);
+  assert.ok(replay.includes("'stripe.test/a'\\''b'"));
+});
+
 test('synthesize malformed device returns validation error 2 before exploration', async (t) => {
   const f = fixture(t), h = browserHarness(t), c = captureIO();
   assert.equal(await run(args(f, ['--device', '390x844@0']), c.io), 2);

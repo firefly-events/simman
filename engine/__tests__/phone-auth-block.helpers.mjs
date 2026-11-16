@@ -105,7 +105,9 @@ export function browserHarness(t, {
         const page = new EventEmitter();
         const context = {
           route: async (pattern, handler) => { h.routes.push({ pattern, handler }); routes.push({ pattern, handler }); h.events.push(['route']); },
-          unroute: async () => {},
+          unroute: async (pattern, handler) => {
+            for (let i = routes.length - 1; i >= 0; i--) if (routes[i].pattern === pattern && (!handler || routes[i].handler === handler)) routes.splice(i, 1);
+          },
           close: async () => {},
           newPage: async () => page,
         };
@@ -123,6 +125,7 @@ export function browserHarness(t, {
           if (matching) await matching.handler(route, req);
           else await route.continue();
         };
+        h.dispatch = dispatch;
         const click = async (sink, point) => {
           sink.push(point);
           for (const request of (actionRequests[action++] || [])) await dispatch(request);

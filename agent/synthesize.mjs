@@ -12,7 +12,7 @@
  */
 import { validateBindings } from '../engine/bindings.mjs';
 import { askVision } from '../engine/providers.mjs';
-import { createBlockState, installBlockRouting, storageStateError, validateStorageState } from '../engine/browser-context.mjs';
+import { createBlockState, installBlockRouting, installRedirectGuard, removeBlockRouting, storageStateError, validateStorageState } from '../engine/browser-context.mjs';
 
 const SCHEMA_HINT = `Return ONLY a JSON object, no prose, no code fences:
 {
@@ -149,6 +149,7 @@ export async function synthesize({
   const selectedStorageState = validateStorageState(storageState);
 
   let browser;
+  let context;
   let workPage = page;
   const blockState = createBlockState(block, { i: null, action: 'exploration' });
   try {
@@ -156,7 +157,6 @@ export async function synthesize({
       if (!url) throw new Error('synthesize: url is required when no page is given');
       const { chromium } = await import('playwright');
       browser = await chromium.launch({ headless });
-      let context;
       try {
         context = await browser.newContext({
           viewport, deviceScaleFactor, isMobile, hasTouch,
@@ -168,6 +168,7 @@ export async function synthesize({
       }
       await installBlockRouting(context, blockState);
       workPage = await context.newPage();
+      await installRedirectGuard(context, workPage, blockState);
       try {
         await workPage.goto(url, { waitUntil: 'domcontentloaded' });
         await workPage.waitForLoadState('networkidle').catch(() => {});
@@ -181,7 +182,9 @@ export async function synthesize({
         throw error;
       }
     } else if (typeof workPage.context === 'function') {
-      await installBlockRouting(workPage.context(), blockState);
+      context = workPage.context();
+      await installBlockRouting(context, blockState);
+      await installRedirectGuard(context, workPage, blockState);
     }
 
     const ctx = await capturePageContext(workPage);
@@ -224,6 +227,7 @@ export async function synthesize({
     err.lastRaw = lastRaw.slice(0, 1200);
     throw err;
   } finally {
+    if (context) await removeBlockRouting(context, blockState);
     if (browser) await browser.close();
   }
 }

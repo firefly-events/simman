@@ -47,27 +47,88 @@ export function createBlockState(patterns = [], initial = { i: null, action: 'na
     patterns: Array.isArray(patterns) ? patterns.filter((p) => p !== undefined) : [],
     blocked: [],
     blockedRequests: new WeakSet(),
+    blockedRequestKeys: new Set(),
     active: initial,
     installed: false,
+    handler: null,
+    sessions: new Map(),
   };
 }
 
-export async function installBlockRouting(context, state) {
+function requestKey(method, url) { return `${method} ${url}`; }
+
+function recordBlocked(state, method, url, request) {
+  if (request && typeof request === 'object') state.blockedRequests.add(request);
+  state.blockedRequestKeys.add(requestKey(method, url));
+  const active = state.active || { i: null, action: 'navigation' };
+  let safeUrl = String(url);
+  try {
+    const parsed = new URL(safeUrl);
+    parsed.username = '';
+    parsed.password = '';
+    parsed.hash = '';
+    for (const key of parsed.searchParams.keys()) parsed.searchParams.set(key, 'REDACTED');
+    safeUrl = parsed.toString();
+  } catch { safeUrl = safeUrl.split('#')[0].replace(/([?&][^=&#]+)=([^&#]*)/g, '$1=[REDACTED]'); }
+  state.blocked.push({ method, url: safeUrl, i: active.i ?? null, action: active.action || 'navigation' });
+}
+
+export async function installBlockRouting(context, state, page) {
   if (!state || state.installed || state.patterns.length === 0) return;
   state.installed = true;
   // A single-star Playwright glob does not cross URL slashes. Keep the
   // policy matcher inside a real catch-all route callback.
-  await context.route('**/*', async (route, suppliedRequest) => {
+  state.handler = async (route, suppliedRequest) => {
     const request = typeof route.request === 'function' ? route.request() : suppliedRequest;
     const url = request.url();
     if (state.patterns.some((pattern) => matchesBlockPattern(pattern, url))) {
-      state.blockedRequests.add(request);
-      const active = state.active || { i: null, action: 'navigation' };
-      state.blocked.push({ method: request.method(), url, i: active.i ?? null, action: active.action || 'navigation' });
+      recordBlocked(state, request.method(), url, request);
       await route.abort();
       return;
     }
-    if (typeof route.continue === 'function') await route.continue();
-    else await route.fallback();
+    if (typeof route.fallback === 'function') await route.fallback();
+    else await route.continue();
+  };
+  await context.route('**/*', state.handler);
+  if (page) await installRedirectGuard(context, page, state);
+}
+
+/**
+ * Chromium's Fetch domain sees redirect hops before they reach the wire. Attach
+ * this before navigation on the page being driven; popup target chains that
+ * start before a page event is delivered are outside this page-scoped guard.
+ */
+export async function installRedirectGuard(context, page, state) {
+  if (!state || !state.patterns.length || state.sessions.has(page) || typeof context.newCDPSession !== 'function') return;
+  let session;
+  try { session = await context.newCDPSession(page); }
+  catch { return; }
+  state.sessions.set(page, session);
+  session.on('Fetch.requestPaused', async (event) => {
+    const { requestId, request, redirectedRequestId } = event;
+    // Context routing handles initial requests and records their identity. CDP
+    // is needed only for redirected hops, which Playwright does not route.
+    if (!redirectedRequestId) {
+      try { await session.send('Fetch.continueRequest', { requestId }); } catch { /* page may be closing */ }
+      return;
+    }
+    if (state.patterns.some((pattern) => matchesBlockPattern(pattern, request.url))) {
+      recordBlocked(state, request.method, request.url);
+      try { await session.send('Fetch.failRequest', { requestId, errorReason: 'BlockedByClient' }); } catch { /* page may be closing */ }
+      return;
+    }
+    try { await session.send('Fetch.continueRequest', { requestId }); }
+    catch { /* page may be closing */ }
   });
+  await session.send('Fetch.enable', { patterns: [{ urlPattern: '*', requestStage: 'Request' }] });
+}
+
+export async function removeBlockRouting(context, state) {
+  if (!state) return;
+  if (state.handler) await context.unroute('**/*', state.handler).catch(() => {});
+  for (const session of state.sessions.values()) {
+    try { await session.send('Fetch.disable'); } catch { /* page may be closing */ }
+    try { await session.detach(); } catch { /* context may be closing */ }
+  }
+  state.sessions.clear();
 }

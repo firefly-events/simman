@@ -37,7 +37,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { askVision, resolveProviderConfig } from './providers.mjs';
-import { createBlockState, installBlockRouting, storageStateError, validateStorageState } from './browser-context.mjs';
+import { createBlockState, installBlockRouting, installRedirectGuard, removeBlockRouting, storageStateError, validateStorageState } from './browser-context.mjs';
 
 // ─── Default config (env-driven; overridable per-call via opts) ──────────────
 
@@ -338,6 +338,7 @@ async function fillOrSelect(page, target, text) {
 export async function native(page, step, opts = {}) {
   const base = opts.baseUrl || DEFAULTS.baseUrl;
   const args = step.args || {};
+  const activate = (locator) => opts.hasTouch && typeof locator.tap === 'function' ? locator.tap() : locator.click();
   switch (step.act) {
     case 'goto': {
       const url = args.url || (base + (args.path || '/'));
@@ -389,7 +390,7 @@ export async function native(page, step, opts = {}) {
             else target = partial;
           }
         }
-        await visibleFirst(target).click();
+        await activate(visibleFirst(target));
       }
       break;
     case 'tapText': {
@@ -397,10 +398,10 @@ export async function native(page, step, opts = {}) {
       // we never build /undefined/i and click an unintended element.
       const name = args.name ?? args.text;
       if (name == null) throw new Error('tapText requires args.text or args.name');
-      await (await exactFirst(
+      await activate(await exactFirst(
         page.getByText(name, { exact: true }),
         () => page.getByText(new RegExp(name, 'i')),
-      )).click();
+      ));
       break;
     }
     case 'wait':
@@ -566,12 +567,13 @@ export async function runFlow(page, scenario, binding, opts = {}) {
   // Record requests for network truth-signals. Only url+method are kept, capped
   // so a chatty SPA can't grow the array unbounded during a long flow.
   const blockState = opts.blockState;
-  const networkState = { posted: false, requests: [], blockedRequests: blockState?.blockedRequests };
+  const networkState = { posted: false, requests: [], postRequests: [], blockedRequests: blockState?.blockedRequests };
   const MAX_RECORDED = 1000;
 
   // Named handler so we can detach it — callers may reuse an authenticated
   // page/context across runs; an anonymous listener would accumulate.
   const onRequest = (req) => {
+    if (req.url().includes('/api/social/post') && req.method() === 'POST') networkState.postRequests.push({ url: req.url(), method: req.method(), request: req });
     if (networkState.requests.length < MAX_RECORDED) {
       networkState.requests.push({ url: req.url(), method: req.method(), request: req });
     }
@@ -622,7 +624,7 @@ export async function runFlow(page, scenario, binding, opts = {}) {
         }
       }
 
-      rec.posted = networkState.posted;
+      rec.posted = hasAllowedPost(networkState, blockState);
 
       // Hybrid V&V: truth-signal is authoritative when declared
       if (b.truth) {
@@ -659,7 +661,7 @@ export async function runFlow(page, scenario, binding, opts = {}) {
     snap: opts.snapR ?? DEFAULTS.snapR,
     flowPassed: passed === total,
     stepsPassed: `${passed}/${total}`,
-    posted: networkState.requests.some((r) => r.url.includes('/api/social/post') && r.method === 'POST' && !networkState.blockedRequests?.has(r.request)),
+    posted: hasAllowedPost(networkState, blockState),
     ...(blockState?.blocked?.length ? { blocked: blockState.blocked } : {}),
     steps: report.map((r) => r.fatal ? r : {
       i: r.i,
@@ -679,6 +681,11 @@ export async function runFlow(page, scenario, binding, opts = {}) {
       expected: r.expected,
     }),
   };
+}
+
+function hasAllowedPost(networkState, blockState) {
+  return networkState.postRequests.some((r) =>
+    !networkState.blockedRequests?.has(r.request) && !blockState?.blockedRequestKeys?.has(`${r.method} ${r.url}`));
 }
 
 // ─── High-level actual-mode executor ──────────────────────────────────────────
@@ -746,14 +753,22 @@ export async function runActualFlow(options = {}) {
   // Caller supplied a page → run directly; caller owns navigation + teardown.
   if (providedPage) {
     const blockState = createBlockState(block);
-    if (typeof providedPage.context === 'function') await installBlockRouting(providedPage.context(), blockState);
+    const context = typeof providedPage.context === 'function' ? providedPage.context() : null;
     opts.blockState = blockState;
-    return runFlow(providedPage, scenario, overlay, opts);
+    try {
+      if (context) {
+        await installBlockRouting(context, blockState);
+        await installRedirectGuard(context, providedPage, blockState);
+      }
+      return await runFlow(providedPage, scenario, overlay, opts);
+    }
+    finally { if (context) await removeBlockRouting(context, blockState); }
   }
 
   // Otherwise own the full Playwright lifecycle.
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless });
+  let context, blockState;
   try {
     const contextOptions = {
       viewport: opts.viewport,
@@ -762,17 +777,17 @@ export async function runActualFlow(options = {}) {
       hasTouch: opts.hasTouch,
       ...(opts.storageState ? { storageState: opts.storageState } : {}),
     };
-    let context;
     try {
       context = await browser.newContext(contextOptions);
     } catch (error) {
       if (opts.storageState) throw storageStateError(opts.storageState);
       throw error;
     }
-    const blockState = createBlockState(block);
+    blockState = createBlockState(block);
     await installBlockRouting(context, blockState);
     opts.blockState = blockState;
     const page = await context.newPage();
+    await installRedirectGuard(context, page, blockState);
     try {
       await page.goto(opts.baseUrl + '/', { waitUntil: 'domcontentloaded' });
       await page.waitForLoadState('networkidle').catch(() => {});
@@ -782,6 +797,7 @@ export async function runActualFlow(options = {}) {
     }
     return await runFlow(page, scenario, overlay, opts);
   } finally {
+    if (context && blockState) await removeBlockRouting(context, blockState);
     await browser.close();
   }
 }

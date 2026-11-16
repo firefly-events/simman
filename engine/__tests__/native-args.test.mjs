@@ -8,6 +8,7 @@ function fakePage(sink) {
   const leaf = (record) => ({
     fill: async (v) => { sink.push({ ...record, fill: v }); },
     click: async () => { sink.push({ ...record, click: true }); },
+    tap: async () => { sink.push({ ...record, tap: true }); },
   });
   const chain = (record) => ({ first: () => ({ ...leaf(record), waitFor: async () => {} }), ...leaf(record), count: async () => 1 });
   return {
@@ -76,4 +77,15 @@ test('tapRole accepts a role without a name', async () => {
   await native(fakePage(sink), { act: 'tapRole', args: { role: 'checkbox' } });
   assert.equal(sink[0].role, 'checkbox');
   assert.equal(sink[0].click, true);
+});
+
+test('native taps use touch input only when the context hasTouch option is enabled', async () => {
+  const desktop = [], phone = [];
+  await native(fakePage(desktop), { act: 'tapRole', args: { name: 'Go' } });
+  await native(fakePage(phone), { act: 'tapRole', args: { name: 'Go' } }, { hasTouch: true });
+  await native(fakePage(phone), { act: 'tapText', args: { text: 'Continue' } }, { hasTouch: true });
+  assert.equal(desktop[0].click, true);
+  assert.equal(desktop[0].tap, undefined);
+  assert.equal(phone[0].tap, true);
+  assert.equal(phone[1].tap, true);
 });

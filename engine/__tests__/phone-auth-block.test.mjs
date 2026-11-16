@@ -2,7 +2,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
+import { createServer } from 'node:http';
 import { runActualFlow, visionTap } from '../flow-runner.mjs';
+import { createBlockState, installBlockRouting, installRedirectGuard } from '../browser-context.mjs';
 import { renderReport } from '../../cli/report.mjs';
 import { PHONE, COOKIE_SECRET, fixture, browserHarness, contextDevice, clickPlan, assertNoSecrets } from './phone-auth-block.helpers.mjs';
 
@@ -167,6 +169,15 @@ test('block: route is installed before initial navigation and aborts substring m
   assert.ok(h.continued.some((r) => r.url === 'http://localhost:3100/'));
 });
 
+test('block: a caller-owned run page has its policy removed when the run returns', async (t) => {
+  const h = browserHarness(t);
+  await runActualFlow(emptyPlan);
+  await runActualFlow({ ...emptyPlan, page: h.page, block: ['/api/orders'] });
+  await h.dispatch({ url: TARGET, method: 'POST' });
+  assert.deepEqual(h.aborted, []);
+  assert.ok(h.continued.some((r) => r.url === TARGET));
+});
+
 test('block: simple star globs work and regexp punctuation stays literal', async (t) => {
   const blocked = 'https://billing.test/v1/a/charge?mode=live';
   const allowed = 'https://billingXtest/v1/a/charge?mode=live';
@@ -190,6 +201,80 @@ test('block: initial-navigation requests have null step index and navigation act
   browserHarness(t, { initialRequests: [{ url: TARGET }] });
   const report = await runActualFlow({ ...emptyPlan, block: ['/api/orders'] });
   assert.deepEqual(report.blocked, [{ method: 'POST', url: TARGET, i: null, action: 'navigation' }]);
+});
+
+test('block: evidence redacts query values, URL credentials, and fragments', async (t) => {
+  const h = browserHarness(t, { initialRequests: [{ url: 'https://user:pass@stripe.test/charge?token=private&mode=live#secret', method: 'POST' }] });
+  const report = await runActualFlow({ ...emptyPlan, block: ['stripe.test'] });
+  assert.equal(report.blocked[0].url, 'https://stripe.test/charge?token=REDACTED&mode=REDACTED');
+  assert.doesNotMatch(JSON.stringify(report), /private|user|pass|secret/);
+});
+
+test('block: real Chromium blocks a POST 307 destination before the destination server sees it', async (t) => {
+  const received = [];
+  const server = createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      received.push({ url: req.url, method: req.method, body: Buffer.concat(chunks).toString() });
+      if (req.url === '/start') { res.writeHead(307, { location: '/blocked?token=fixture-secret' }); res.end(); }
+      else { res.writeHead(200); res.end('should not arrive'); }
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  let browser;
+  try { browser = await chromium.launch(); } catch (error) { t.skip(`no browser: ${error.message}`); return; }
+  t.after(() => browser.close());
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const state = createBlockState(['/blocked'], { i: null, action: 'navigation' });
+  await installBlockRouting(context, state);
+  await installRedirectGuard(context, page, state);
+  const port = server.address().port;
+  await page.goto(`http://127.0.0.1:${port}/`);
+  await page.evaluate(async () => {
+    try { await fetch('/start', { method: 'POST', body: 'single-write' }); } catch {}
+  });
+  assert.deepEqual(received.filter((r) => r.url !== '/'), [{ url: '/start', method: 'POST', body: 'single-write' }]);
+  assert.equal(state.blocked.length, 1);
+  assert.equal(state.blocked[0].method, 'POST');
+  assert.equal(state.blocked[0].url, 'http://127.0.0.1:' + port + '/blocked?token=REDACTED');
+  await context.close();
+});
+
+test('block: real Chromium preserves allowed POST 307 navigation semantics', async (t) => {
+  const received = [];
+  const server = createServer((req, res) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => {
+      received.push({ url: req.url, method: req.method, body: Buffer.concat(chunks).toString() });
+      if (req.url === '/start') { res.writeHead(307, { location: '/allowed' }); res.end(); }
+      else if (req.url === '/form') { res.writeHead(200, { 'content-type': 'text/html' }); res.end('<form method="post" action="/start"><input name="value" value="kept"></form>'); }
+      else { res.writeHead(200, { 'content-type': 'text/html' }); res.end('done'); }
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  let browser;
+  try { browser = await chromium.launch(); } catch (error) { t.skip(`no browser: ${error.message}`); return; }
+  t.after(() => browser.close());
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const state = createBlockState(['/blocked']);
+  await installBlockRouting(context, state);
+  await installRedirectGuard(context, page, state);
+  const port = server.address().port;
+  await page.goto(`http://127.0.0.1:${port}/form`);
+  await Promise.all([page.waitForURL(`http://127.0.0.1:${port}/allowed`), page.locator('form').evaluate((form) => form.requestSubmit())]);
+  assert.equal(page.url(), `http://127.0.0.1:${port}/allowed`);
+  assert.deepEqual(received, [
+    { url: '/form', method: 'GET', body: '' },
+    { url: '/start', method: 'POST', body: 'value=kept' },
+    { url: '/allowed', method: 'POST', body: 'value=kept' },
+  ]);
+  await context.close();
 });
 
 test('block: aborted request emitted before route cannot satisfy network truth', async (t) => {
@@ -217,6 +302,15 @@ test('block: legacy posted truth and posted report stay false for aborted writes
   assert.equal(report.posted, false);
   assert.equal(report.steps[0].truth, false);
   assert.equal(report.steps[0].why, 'blocked');
+});
+
+test('posted: onStep and final report see allowed legacy writes beyond the request evidence cap', async (t) => {
+  browserHarness(t, { actionRequests: [[...Array.from({ length: 1000 }, (_, i) => ({ url: `https://app.test/api/other/${i}` })),
+    { url: 'https://app.test/api/social/post' }]] });
+  const seen = [];
+  const report = await runActualFlow({ ...clickPlan(), onStep: (step) => seen.push(step) });
+  assert.equal(seen[0].posted, true);
+  assert.equal(report.posted, true);
 });
 
 test('block: report attributes requests to each active step rather than the last step', async (t) => {
