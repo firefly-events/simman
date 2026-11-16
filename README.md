@@ -49,7 +49,7 @@ to autonomous UI testing. (We use the Gemini API directly; not affiliated with G
 
 1. **`engine/`** — deterministic runner. Takes a **structured** scenario + overlay,
    drives the browser, vision-grounds, verifies, returns a hybrid pass/fail report.
-   No LLM in the core; testable headless. _(hardened — 116 tests green)_
+   No LLM in the core; testable headless. _(hardened — covered by the full test suite)_
 2. **`agent/`** — synthesis layer (LLM). Compiles intent into the engine's
    structured input: given a URL + a natural-language goal, explores the page,
    decomposes into steps, decides native-vs-vision, declares truth-signals.
@@ -114,6 +114,33 @@ A scenario is one authored YAML — `id`, optional `baseUrl`, and `steps` of
 `{ action, expected, do, truth? }`. See `scenarios/example.yaml` and
 `docs/overlay-schema.md` for the compiled engine format.
 
+### Device emulation
+
+Use `--device WxH[@scale][,touch]` to run in a complete browser device context;
+for example, `--device 390x844@3,touch`. The same value can be set as
+`device` in the config file. CLI flags take precedence over config, then
+`VIEWPORT_W`/`VIEWPORT_H`, then the 1280x800 desktop default. Touch contexts use
+touchscreen taps and grounded coordinates remain CSS pixels at any scale.
+
+### Signed-in browser state
+
+Pass `--storage-state path/to/state.json`, or set `storageState` in the config,
+to load Playwright authentication state. The CLI value replaces the config
+value. SimMan validates the file before browser/model work and reports only its
+path; cookies and local-storage tokens are never included in reports, captures,
+plans, or errors.
+
+### Request blocking
+
+Use repeatable `--block <pattern>` flags, or a `block` array in config, to abort
+matching requests before navigation. Patterns match URL substrings; `*` is a
+simple wildcard, and CLI patterns replace config patterns. Blocked requests are
+listed in the JSON report as `{ method, url, i, action }`, counted in the human
+summary, and cannot satisfy a network truth signal. Synthesis applies the same
+device, state, and block protections during exploration and approved execution.
+Playwright context routing does not cover service-worker-bypassed requests or
+WebSocket traffic.
+
 Truth signals are user-defined — declare your own app's ground truth per step:
 
 ```yaml
@@ -132,7 +159,7 @@ hybrid verification, not vibes. (The legacy `posted` / `cta_enabled` string
 aliases still parse but are deprecated.)
 
 ```bash
-npm test            # 116 tests — engine + cli + gate + agent, headless, no API key needed
+npm test            # 219 tests — engine + cli + gate + agent, headless, no API key needed
 ```
 
 ## Synthesis — goal → gate → test

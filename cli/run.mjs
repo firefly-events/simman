@@ -29,6 +29,10 @@ Options:
   --provider <name>     vision provider for all roles: google | mlx
   --config <path>       explicit config file (else autodiscover simman.config.*)
   --coords <px|norm>    override the grounding coordinate convention
+  --device <WxH[@scale][,touch]>  emulate a viewport/device context
+  --storage-state <file>  load Playwright storage state from this path
+  --block <pattern>     abort matching requests (repeatable; * is a glob)
+                        e.g. 390x844@3,touch
   --base-url <url>      override the scenario's baseUrl
   --no-headless         run with a visible browser
   --json                print the raw JSON report instead of the human summary
@@ -63,6 +67,9 @@ export async function run(argv, io = {}) {
         provider: { type: 'string' },
         config: { type: 'string' },
         coords: { type: 'string' },
+        device: { type: 'string' },
+        'storage-state': { type: 'string' },
+        block: { type: 'string', multiple: true },
         'base-url': { type: 'string' },
         headless: { type: 'boolean', default: true },
         json: { type: 'boolean', default: false },
@@ -131,6 +138,7 @@ export async function run(argv, io = {}) {
       coords: providers.coords,
       grounding: providers.grounding,
       verify: providers.verify,
+      ...providers.browser,
       stepTimeoutMs: 90000,
       ...(values.captures ? { capturesDir: resolvePath(values.captures) } : {}),
     });

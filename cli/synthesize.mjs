@@ -162,9 +162,23 @@ export async function synthesizeCommand({ url, goal, values }, io = {}) {
       url, goal,
       headless: values.headless,
       providerCfg: providers.synth,
+      ...providers.browser,
       retries: 2,
     });
   } catch (e) {
+    if (e.blocked?.length) {
+      const report = {
+        scenario: url,
+        flowPassed: false,
+        stepsPassed: '0/1',
+        posted: false,
+        blocked: e.blocked,
+        steps: [{ i: 0, action: 'exploration', expected: 'page loaded', acted: false, pass: false, why: 'blocked' }],
+      };
+      if (values.json) log(JSON.stringify(report, null, 2));
+      else log(renderReport(report));
+      return 1;
+    }
     errLog(`error: synthesis failed — ${e.message}`);
     if (e.lastRaw) errLog(`  last model output: ${e.lastRaw.slice(0, 300)}`);
     return 2;
@@ -206,7 +220,11 @@ export async function synthesizeCommand({ url, goal, values }, io = {}) {
   log(`✔ saved ${outPath}`);
   log(`  re-run any time (no LLM synthesis needed): simman run ${outPath}`);
 
-  if (values['no-run']) return 0;
+  if (values['no-run']) {
+    if (values.json) log(JSON.stringify({ scenario: approved.scenario.id, blocked: plan.blocked || [] }, null, 2));
+    else if (plan.blocked?.length) log(`  exploration blocked: ${plan.blocked.length} request(s)`);
+    return 0;
+  }
 
   // ── RUN ── through the engine, exactly as `simman run` would.
   log('▶ running…');
@@ -220,8 +238,10 @@ export async function synthesizeCommand({ url, goal, values }, io = {}) {
       coords: providers.coords,
       grounding: providers.grounding,
       verify: providers.verify,
+      ...providers.browser,
       stepTimeoutMs: 90000,
     });
+    if (plan.blocked?.length) report.blocked = [...plan.blocked, ...(report.blocked || [])];
   } catch (e) {
     errLog(`error: run failed — ${e.message}`);
     return 2;

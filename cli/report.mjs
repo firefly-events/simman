@@ -43,6 +43,7 @@ export function renderReport(report, opts = {}) {
   const truthNote = truthSteps.length
     ? `   truth ${truthSteps.filter((s) => s.truth).length}/${truthSteps.length}`
     : '';
-  lines.push(`  ${report.flowPassed ? 'PASS' : 'FAIL'}  ${report.stepsPassed} steps${truthNote}`);
+  const blockedNote = report.blocked?.length ? `   blocked ${report.blocked.length}` : '';
+  lines.push(`  ${report.flowPassed ? 'PASS' : 'FAIL'}  ${report.stepsPassed} steps${truthNote}${blockedNote}`);
   return lines.join('\n');
 }
